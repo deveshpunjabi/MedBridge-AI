@@ -180,10 +180,9 @@ def redact_pii_mock(text: str, verbose: bool = False) -> str:
 
     # Pattern: Capitalized words that look like names (after "I am" / "my name is")
     redacted = re.sub(
-        r"(?:I am|my name is|patient)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)",
+        r"\b(?:[Ii]\s+[Aa]m|[Mm]y\s+[Nn]ame\s+[Ii]s|[Pp]atient)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)",
         lambda m: m.group(0).replace(m.group(1), "[REDACTED_PERSON]"),
         redacted,
-        flags=re.IGNORECASE,
     )
 
     if verbose:
