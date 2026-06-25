@@ -1,51 +1,14 @@
 """
 MedBridge AI - Router Agent (Intent Classifier)
-=================================================
 
-Kaggle Rubric Alignment: ADK / Agent Pattern (Code)
------------------------------------------------------
-
-Design Rationale:
-    The Router Agent is the FIRST agent in the pipeline. It receives sanitized
-    user input (post-PII-redaction) and classifies the intent into one of four
-    categories: MEDICAL, SCHEDULER, BOTH, or UNKNOWN.
-
-Why a dedicated Router Agent (not hardcoded rules):
-    1. **LLM-powered classification** — The router uses Gemini to understand
-       natural language intent, not brittle keyword matching. "I need to refill
-       my heart pills next Tuesday" contains BOTH medical and scheduling intent,
-       which keyword rules would struggle with.
-    2. **Structured output** — We use Gemini's JSON response mode with a
-       constrained schema to guarantee the output is a valid enum value.
-       This eliminates the need for fragile text parsing.
-    3. **Separation of concerns** — The router ONLY classifies. It does not
-       answer questions, call tools, or generate medical advice. This follows
-       the Single Responsibility Principle and makes the system easier to audit.
-
-Why structured output over free-text parsing:
-    Free-text classification (e.g., parsing "I think this is medical") is
-    brittle and can fail silently. JSON mode with an enum schema guarantees
-    the LLM returns exactly one of our valid categories, making the routing
-    decision deterministic and testable.
-
-Routing Logic:
-    - MEDICAL   → Query contains drug names, symptoms, health conditions,
-                   or public health questions.
-    - SCHEDULER → Query contains dates, times, "remind me", or scheduling intent.
-    - BOTH      → Query contains both medical content AND scheduling intent.
-    - UNKNOWN   → Query is unclear, off-topic, or cannot be classified.
+Classifies sanitized user queries into routing categories:
+MEDICAL, SCHEDULER, BOTH, or UNKNOWN.
 """
 
 import json
 from typing import Optional
-
 import click
-
 from config import GEMINI_API_KEY, MODEL_NAME
-
-# =============================================================================
-# System Prompt
-# =============================================================================
 
 ROUTER_SYSTEM_PROMPT: str = """You are a healthcare intent routing agent for MedBridge AI.
 
@@ -58,43 +21,43 @@ Your ONLY job is to classify the user's input into exactly ONE of these categori
   "schedule", "book", or any calendar-related action.
   
 - BOTH: The input contains BOTH medical content AND scheduling/reminder intent.
-  Example: "Remind me to take Lisinopril at 8am" (drug name + scheduling).
   
 - UNKNOWN: The input is unclear, unrelated to health or scheduling, or you cannot
   confidently classify it.
 
 Rules:
 1. Respond ONLY with the classification. No explanations.
-2. When in doubt between MEDICAL and BOTH, prefer BOTH (safer — ensures both agents run).
+2. When in doubt between MEDICAL and BOTH, prefer BOTH.
 3. Greetings or casual chat should be classified as UNKNOWN.
 """
 
-
-# =============================================================================
-# Intent Classification (Real Mode)
-# =============================================================================
-
 async def classify_intent(text: str, mock: bool = False) -> str:
-    """
-    Classify the user's input into a routing category.
-
-    This function is the entry point of the multi-agent pipeline. After PII
-    redaction, main.py calls this to determine which specialist agent(s)
-    should handle the query.
-
-    Args:
-        text: Sanitized user input (PII already redacted).
-        mock: If True, uses keyword matching instead of LLM.
-
-    Returns:
-        One of: "MEDICAL", "SCHEDULER", "BOTH", "UNKNOWN"
-    """
+    """Classify the user's input into a routing category."""
     if mock:
         return _classify_intent_mock(text)
+
+    # Local keyword check to bypass API calls for simple queries
+    local_intent = _classify_intent_mock(text)
+    if local_intent != "UNKNOWN":
+        click.echo(
+            click.style(
+                f"   ✓ Router classified locally: {local_intent}",
+                fg="cyan",
+            )
+        )
+        return local_intent
+
+    click.echo(
+        click.style(
+            "   🤖 Query is ambiguous — using Gemini for classification...",
+            fg="cyan",
+        )
+    )
 
     import time
     from google import genai
     from google.genai import types
+    from rate_limiter import wait_for_rate_limit
 
     try:
         client = genai.Client(api_key=GEMINI_API_KEY)
@@ -105,9 +68,8 @@ async def classify_intent(text: str, mock: bool = False) -> str:
     max_retries = 3
     for attempt in range(max_retries):
         try:
-            # Use JSON mode with a constrained schema to guarantee valid output.
-            # The response_schema ensures Gemini can ONLY return one of our
-            # four valid intent categories.
+            wait_for_rate_limit()
+
             response = client.models.generate_content(
                 model=MODEL_NAME,
                 contents=text,
@@ -127,21 +89,12 @@ async def classify_intent(text: str, mock: bool = False) -> str:
                 ),
             )
 
-            # Parse the structured JSON response
             result = json.loads(response.text)
             intent = result.get("intent", "UNKNOWN")
 
-            # Defensive validation — should never trigger with schema constraints,
-            # but we validate anyway (defense in depth).
             valid_intents = {"MEDICAL", "SCHEDULER", "BOTH", "UNKNOWN"}
             if intent not in valid_intents:
-                click.echo(
-                    click.style(
-                        f"   ⚠️ Router returned unexpected intent '{intent}', defaulting to MEDICAL",
-                        fg="yellow",
-                    )
-                )
-                intent = "MEDICAL"  # Safe default — medical queries get more careful handling
+                intent = "MEDICAL"
 
             return intent
 
@@ -149,46 +102,30 @@ async def classify_intent(text: str, mock: bool = False) -> str:
             err_str = str(e)
             if any(err in err_str for err in ["503", "UNAVAILABLE", "429", "RESOURCE_EXHAUSTED"]):
                 if attempt < max_retries - 1:
-                    sleep_time = 2 * (attempt + 1)
+                    sleep_time = 32 * (attempt + 1)
                     click.echo(
                         click.style(
-                            f"   ⚠️ Router Agent got transient error. Retrying in {sleep_time}s...",
+                            f"   ⚠️ Router Agent got rate-limited. Retrying in {sleep_time}s...",
                             fg="yellow",
                         )
                     )
                     time.sleep(sleep_time)
                     continue
+                click.echo(
+                    click.style(
+                        "   ⚠️ Gemini quota exhausted. Falling back to local classification.",
+                        fg="yellow",
+                    )
+                )
+                return "MEDICAL"
 
-            click.echo(
-                click.style(f"   ⚠️ Router Agent error: {e}", fg="red")
-            )
-            click.echo(
-                click.style("   Defaulting to MEDICAL for safety.", fg="yellow")
-            )
+            click.echo(click.style(f"   ⚠️ Router Agent error: {e}", fg="red"))
             return "MEDICAL"
 
-
-# =============================================================================
-# Mock Classification (for --mock mode)
-# =============================================================================
-
 def _classify_intent_mock(text: str) -> str:
-    """
-    Keyword-based intent classification for offline testing.
-
-    This mock implementation allows the full pipeline to run without a
-    Gemini API key. It uses simple keyword matching, which is sufficient
-    to demonstrate the routing flow during a demo.
-
-    Args:
-        text: User input text.
-
-    Returns:
-        Classified intent string.
-    """
+    """Keyword-based intent classification for offline testing."""
     text_lower = text.lower()
 
-    # Check for medical keywords
     medical_keywords = [
         "drug", "medication", "medicine", "prescription", "symptom",
         "interaction", "side effect", "aspirin", "warfarin", "lisinopril",
@@ -197,14 +134,19 @@ def _classify_intent_mock(text: str) -> str:
     ]
     has_medical = any(kw in text_lower for kw in medical_keywords)
 
-    # Check for scheduling keywords
     scheduler_keywords = [
         "remind", "schedule", "appointment", "calendar", "book",
-        "tomorrow", "next week", "at ", "am", "pm", "o'clock",
+        "tomorrow", "next week", "o'clock",
         "monday", "tuesday", "wednesday", "thursday", "friday",
         "saturday", "sunday",
     ]
+    
+    import re
     has_scheduler = any(kw in text_lower for kw in scheduler_keywords)
+    if not has_scheduler:
+        has_scheduler = bool(re.search(r"\bat\s+\d{1,2}\s*(?:am|pm)", text_lower))
+        if not has_scheduler:
+            has_scheduler = bool(re.search(r"\d{1,2}:\d{2}", text_lower))
 
     if has_medical and has_scheduler:
         return "BOTH"
