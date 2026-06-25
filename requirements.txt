@@ -1,24 +1,6 @@
-# MedBridge AI - Dependencies
-# ============================
-# Kaggle AI Agents Intensive Course - Capstone Project
-#
-# Install: pip install -r requirements.txt
-# Also run: python -m spacy download en_core_web_sm
-
-# Google Gemini AI SDK - Agent backbone for LLM reasoning and tool calling
 google-genai>=1.0.0
-
-# spaCy NLP - PII/PHI redaction via Named Entity Recognition
 spacy>=3.7.0
-
-# Click - CLI framework for the command-line interface
 click>=8.1.0
-
-# MCP (Model Context Protocol) - Real server/client for tool exposure
 mcp>=1.0.0
-
-# Requests - HTTP client for OpenFDA API calls
 requests>=2.31.0
-
-# python-dotenv - Secure API key loading from .env files
 python-dotenv>=1.0.0
