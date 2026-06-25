@@ -33,15 +33,13 @@ load_dotenv()
 GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
 """API key for Google Gemini. Loaded from GEMINI_API_KEY env var."""
 
-MODEL_NAME: str = "gemini-2.0-flash"
+MODEL_NAME: str = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
 """
 Model used for all agents (Router, Medical, Scheduler).
 
-Design Choice: We use gemini-2.0-flash for the entire system because:
-  1. Flash is fast — critical for a CLI tool where users expect quick responses.
-  2. Flash supports function calling, structured output, and Google Search
-     grounding — all features we need for the multi-agent system.
-  3. Using one model simplifies configuration without sacrificing capability.
+Design Choice: We use gemini-2.0-flash by default as it is fast, cost-effective,
+and supports all agent functions. Users can customize this by setting GEMINI_MODEL
+in their .env file (e.g. gemini-1.5-flash or gemini-1.5-pro).
 """
 
 
