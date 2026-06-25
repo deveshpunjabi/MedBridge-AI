@@ -473,13 +473,189 @@ def _get_input_text(
 
 
 # =============================================================================
+# GUI Web Server Implementation
+# =============================================================================
+
+async def _execute_pipeline_for_gui(query_text: str, mock: bool, verbose: bool) -> dict:
+    """
+    Executes the multi-agent pipeline and returns structured JSON for the GUI.
+    """
+    # 1. PII Redaction
+    if mock:
+        sanitized_text = redact_pii_mock(query_text, verbose=verbose)
+    else:
+        sanitized_text = redact_pii(query_text, verbose=verbose)
+        
+    # 2. Router classification
+    from agents.router_agent import classify_intent
+    intent = await classify_intent(sanitized_text, mock=mock)
+    
+    # 3. Specialist Execution
+    medical_resp = ""
+    scheduler_resp = ""
+    
+    if mock:
+        from agents.medical_agent import run_medical_agent
+        from agents.scheduler_agent import run_scheduler_agent
+        if intent == "MEDICAL":
+            medical_resp = await run_medical_agent(sanitized_text, mcp_session=None, mock=True)
+        elif intent == "SCHEDULER":
+            scheduler_resp = await run_scheduler_agent(sanitized_text, mcp_session=None, mock=True)
+        elif intent == "BOTH":
+            medical_resp = await run_medical_agent(sanitized_text, mcp_session=None, mock=True)
+            scheduler_resp = await run_scheduler_agent(sanitized_text, mcp_session=None, mock=True)
+    else:
+        from mcp import ClientSession, StdioServerParameters
+        from mcp.client.stdio import stdio_client
+        
+        server_params = StdioServerParameters(
+            command=config.PYTHON_EXECUTABLE,
+            args=[config.MCP_SERVER_SCRIPT],
+        )
+        
+        try:
+            async with stdio_client(server_params) as (read, write):
+                async with ClientSession(read, write) as session:
+                    await session.initialize()
+                    
+                    from agents.medical_agent import run_medical_agent
+                    from agents.scheduler_agent import run_scheduler_agent
+                    
+                    if intent == "MEDICAL":
+                        medical_resp = await run_medical_agent(sanitized_text, mcp_session=session, mock=False)
+                    elif intent == "SCHEDULER":
+                        scheduler_resp = await run_scheduler_agent(sanitized_text, mcp_session=session, mock=False)
+                    elif intent == "BOTH":
+                        # Safety sequence: Medical check first
+                        medical_resp = await run_medical_agent(sanitized_text, mcp_session=session, mock=False)
+                        scheduler_resp = await run_scheduler_agent(sanitized_text, mcp_session=session, mock=False)
+        except Exception as e:
+            medical_resp = f"❌ Error executing live agent pipeline: {e}"
+            
+    return {
+        "raw_input": query_text,
+        "sanitized_input": sanitized_text,
+        "intent": intent,
+        "medical_response": medical_resp,
+        "scheduler_response": scheduler_resp,
+    }
+
+
+from http.server import BaseHTTPRequestHandler
+
+class GUIHTTPRequestHandler(BaseHTTPRequestHandler):
+    """
+    Minimal, zero-dependency HTTP server to serve index.html and handle API requests.
+    """
+    def log_message(self, format, *args):
+        # Suppress logging to keep CLI console output clean
+        pass
+
+    def do_GET(self):
+        import os
+        if self.path == "/" or self.path == "/index.html":
+            gui_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gui")
+            index_path = os.path.join(gui_dir, "index.html")
+            
+            if os.path.exists(index_path):
+                self.send_response(200)
+                self.send_header("Content-type", "text/html; charset=utf-8")
+                self.end_headers()
+                with open(index_path, "r", encoding="utf-8") as f:
+                    self.wfile.write(f.read().encode("utf-8"))
+            else:
+                self.send_error(404, f"index.html not found in {gui_dir}")
+        else:
+            self.send_error(404, "File Not Found")
+            
+    def do_POST(self):
+        import json
+        if self.path == "/api/query":
+            content_length = int(self.headers['Content-Length'])
+            post_data = self.rfile.read(content_length)
+            
+            try:
+                data = json.loads(post_data.decode('utf-8'))
+                query_text = data.get("query", "").strip()
+                mock = data.get("mock", True)
+                verbose = data.get("verbose", False)
+                
+                if not query_text:
+                    self.send_response(400)
+                    self.send_header("Content-type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"error": "Query cannot be empty"}).encode('utf-8'))
+                    return
+                    
+                # Run the pipeline synchronously inside http server
+                result = asyncio.run(_execute_pipeline_for_gui(query_text, mock, verbose))
+                
+                self.send_response(200)
+                self.send_header("Content-type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps(result).encode('utf-8'))
+                
+            except Exception as e:
+                self.send_response(500)
+                self.send_header("Content-type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": str(e)}).encode('utf-8'))
+        else:
+            self.send_error(404, "API Endpoint Not Found")
+
+
+def _run_gui_server(port: int) -> None:
+    """
+    Launch server and open local browser.
+    """
+    import webbrowser
+    from http.server import HTTPServer
+    
+    server_address = ("", port)
+    
+    click.echo(click.style(BANNER, fg="cyan", bold=True))
+    click.echo(click.style(f"🌐 MedBridge AI Web GUI Server starting on http://localhost:{port}/", fg="green", bold=True))
+    click.echo("Press Ctrl+C to stop the server.\n")
+    
+    try:
+        webbrowser.open(f"http://localhost:{port}/")
+    except Exception:
+        pass
+        
+    httpd = HTTPServer(server_address, GUIHTTPRequestHandler)
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        click.echo(click.style("\nStopping server. Goodbye!", fg="cyan"))
+        httpd.server_close()
+
+
+# =============================================================================
+# Click GUI Command
+# =============================================================================
+
+@cli.command()
+@click.option(
+    "--port", "-p",
+    type=int,
+    default=8000,
+    help="Port to run the local GUI server on.",
+)
+def gui(port: int) -> None:
+    """
+    Launch the MedBridge AI Web GUI in your browser.
+    """
+    _run_gui_server(port)
+
+
+# =============================================================================
 # Entry Point
 # =============================================================================
 
 def main_entry():
     import sys
     # Auto-default to the 'query' command if the first argument is not a known command or option of the root group
-    if len(sys.argv) > 1 and sys.argv[1] not in ("query", "--help", "-h", "--version", "-v"):
+    if len(sys.argv) > 1 and sys.argv[1] not in ("query", "gui", "--help", "-h", "--version", "-v"):
         sys.argv.insert(1, "query")
     cli()
 

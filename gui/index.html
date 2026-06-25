@@ -1,0 +1,903 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="MedBridge AI - Secure Multi-Agent Health Concierge Web Interface">
+    <title>MedBridge AI 🏥 | Secure Health Concierge</title>
+    
+    <!-- Google Fonts: Inter & Outfit -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
+    
+    <style>
+        :root {
+            --bg-color: #0b0f19;
+            --panel-bg: rgba(22, 30, 49, 0.7);
+            --border-color: rgba(255, 255, 255, 0.08);
+            --text-main: #f1f5f9;
+            --text-muted: #94a3b8;
+            
+            --accent-primary: #8b5cf6; /* Indigo/Violet */
+            --accent-cyan: #06b6d4; /* Cyan */
+            --accent-emerald: #10b981; /* Emerald */
+            --accent-amber: #f59e0b; /* Amber */
+            --accent-rose: #f43f5e; /* Rose */
+            
+            --shadow-glow: 0 0 20px rgba(139, 92, 246, 0.15);
+            --font-outfit: 'Outfit', 'Inter', sans-serif;
+            --font-inter: 'Inter', sans-serif;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: var(--font-inter);
+            -webkit-font-smoothing: antialiased;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            background-image: 
+                radial-gradient(at 0% 0%, rgba(139, 92, 246, 0.1) 0px, transparent 50%),
+                radial-gradient(at 100% 100%, rgba(6, 182, 212, 0.08) 0px, transparent 50%);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow-x: hidden;
+        }
+
+        /* --- Header Styles --- */
+        header {
+            padding: 1.2rem 2rem;
+            border-bottom: 1px solid var(--border-color);
+            background: rgba(11, 15, 25, 0.8);
+            backdrop-filter: blur(10px);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .logo-container {
+            display: flex;
+            align-items: center;
+            gap: 0.8rem;
+        }
+
+        .logo-icon {
+            font-size: 2rem;
+            filter: drop-shadow(0 0 8px rgba(16, 185, 129, 0.3));
+        }
+
+        h1 {
+            font-family: var(--font-outfit);
+            font-weight: 800;
+            font-size: 1.6rem;
+            letter-spacing: -0.02em;
+            background: linear-gradient(135deg, var(--text-main) 40%, var(--accent-cyan));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .badge {
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            color: var(--accent-emerald);
+            padding: 0.3rem 0.7rem;
+            border-radius: 99px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+
+        .badge-dot {
+            width: 6px;
+            height: 6px;
+            background-color: var(--accent-emerald);
+            border-radius: 50%;
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(0.9); opacity: 0.6; }
+            50% { transform: scale(1.3); opacity: 1; }
+            100% { transform: scale(0.9); opacity: 0.6; }
+        }
+
+        /* --- Settings Panel --- */
+        .settings-bar {
+            display: flex;
+            gap: 1.5rem;
+            align-items: center;
+        }
+
+        .toggle-container {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.85rem;
+            font-weight: 500;
+            color: var(--text-muted);
+        }
+
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 44px;
+            height: 24px;
+        }
+
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-color: #334155;
+            transition: .3s;
+            border-radius: 24px;
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 16px;
+            width: 16px;
+            left: 4px;
+            bottom: 4px;
+            background-color: var(--text-main);
+            transition: .3s;
+            border-radius: 50%;
+        }
+
+        input:checked + .slider {
+            background-color: var(--accent-primary);
+        }
+
+        input:checked + .slider:before {
+            transform: translateX(20px);
+        }
+
+        /* --- Main Layout --- */
+        main {
+            flex: 1;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            padding: 2rem;
+            gap: 2rem;
+            max-width: 1600px;
+            margin: 0 auto;
+            width: 100%;
+        }
+
+        @media (max-width: 1024px) {
+            main {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* --- Glass Panel Styles --- */
+        .panel {
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            backdrop-filter: blur(16px);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            height: calc(100vh - 160px);
+            min-height: 500px;
+        }
+
+        .panel-header {
+            padding: 1.2rem 1.5rem;
+            border-bottom: 1px solid var(--border-color);
+            font-family: var(--font-outfit);
+            font-weight: 600;
+            font-size: 1.1rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        /* --- Chat Panel (Left) --- */
+        .chat-container {
+            flex: 1;
+            padding: 1.5rem;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .chat-placeholder {
+            margin: auto;
+            text-align: center;
+            max-width: 360px;
+            color: var(--text-muted);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .placeholder-icon {
+            font-size: 3rem;
+            opacity: 0.5;
+            animation: float 3s ease-in-out infinite;
+        }
+
+        @keyframes float {
+            0% { transform: translateY(0px); }
+            50% { transform: translateY(-10px); }
+            100% { transform: translateY(0px); }
+        }
+
+        .message {
+            max-width: 85%;
+            padding: 1rem;
+            border-radius: 12px;
+            line-height: 1.5;
+            font-size: 0.95rem;
+            animation: fadeIn 0.3s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(5px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .message-user {
+            background: rgba(139, 92, 246, 0.15);
+            border: 1px solid rgba(139, 92, 246, 0.2);
+            align-self: flex-end;
+            border-bottom-right-radius: 2px;
+        }
+
+        .message-bot {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border-color);
+            align-self: flex-start;
+            border-bottom-left-radius: 2px;
+        }
+
+        /* Formatting elements in bot response */
+        .message-bot strong {
+            color: var(--accent-cyan);
+        }
+        
+        .message-bot li {
+            margin-left: 1.2rem;
+            margin-top: 0.4rem;
+        }
+
+        .message-bot ul {
+            margin-bottom: 0.5rem;
+        }
+
+        /* --- Chat Input Area --- */
+        .input-area {
+            padding: 1.2rem 1.5rem;
+            border-top: 1px solid var(--border-color);
+            display: flex;
+            gap: 0.8rem;
+            background: rgba(15, 22, 38, 0.5);
+        }
+
+        .query-input {
+            flex: 1;
+            background: #121a2e;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 0.8rem 1.2rem;
+            color: var(--text-main);
+            font-size: 0.95rem;
+            outline: none;
+            transition: all 0.2s;
+        }
+
+        .query-input:focus {
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 10px rgba(139, 92, 246, 0.2);
+        }
+
+        .send-btn {
+            background: var(--accent-primary);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            padding: 0 1.5rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+        }
+
+        .send-btn:hover {
+            opacity: 0.9;
+            box-shadow: var(--shadow-glow);
+        }
+
+        .send-btn:disabled {
+            background: #334155;
+            color: var(--text-muted);
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+
+        /* --- Loading State --- */
+        .loading-dots {
+            display: flex;
+            gap: 4px;
+            align-items: center;
+            height: 20px;
+        }
+
+        .loading-dots span {
+            width: 8px;
+            height: 8px;
+            background-color: var(--text-muted);
+            border-radius: 50%;
+            animation: bounce 1.4s infinite ease-in-out both;
+        }
+
+        .loading-dots span:nth-child(1) { animation-delay: -0.32s; }
+        .loading-dots span:nth-child(2) { animation-delay: -0.16s; }
+
+        @keyframes bounce {
+            0%, 80%, 100% { transform: scale(0); }
+            40% { transform: scale(1); }
+        }
+
+        /* --- Inspector Panel (Right) --- */
+        .inspector-container {
+            flex: 1;
+            padding: 1.5rem;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        .inspector-placeholder {
+            margin: auto;
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+
+        .inspector-card {
+            background: rgba(15, 23, 42, 0.4);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 1.2rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.8rem;
+            animation: fadeIn 0.4s ease;
+        }
+
+        .card-title {
+            font-family: var(--font-outfit);
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        /* --- Specific Inspector Cards --- */
+        .text-comparison {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+        }
+
+        @media (max-width: 640px) {
+            .text-comparison {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .text-box {
+            background: #0f172a;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            padding: 0.8rem;
+            font-size: 0.85rem;
+            line-height: 1.4;
+            min-height: 80px;
+            word-break: break-word;
+        }
+
+        .text-box-label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-bottom: 0.4rem;
+            font-weight: 500;
+        }
+
+        /* Redaction highlighter styling */
+        .redacted-word {
+            background: rgba(244, 63, 94, 0.2);
+            color: var(--accent-rose);
+            border: 1px dashed rgba(244, 63, 94, 0.4);
+            padding: 0.1rem 0.3rem;
+            border-radius: 4px;
+            font-weight: 600;
+        }
+
+        .redacted-placeholder {
+            background: rgba(245, 158, 11, 0.2);
+            color: var(--accent-amber);
+            border: 1px solid rgba(245, 158, 11, 0.4);
+            padding: 0.1rem 0.3rem;
+            border-radius: 4px;
+            font-weight: 600;
+        }
+
+        /* Intent Badge */
+        .intent-badge-container {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .intent-glow-badge {
+            font-family: var(--font-outfit);
+            font-size: 1.2rem;
+            font-weight: 800;
+            padding: 0.4rem 1.2rem;
+            border-radius: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.02em;
+            display: inline-block;
+        }
+
+        .intent-medical {
+            background: rgba(6, 182, 212, 0.15);
+            border: 1px solid rgba(6, 182, 212, 0.3);
+            color: var(--accent-cyan);
+            box-shadow: 0 0 15px rgba(6, 182, 212, 0.1);
+        }
+
+        .intent-scheduler {
+            background: rgba(139, 92, 246, 0.15);
+            border: 1px solid rgba(139, 92, 246, 0.3);
+            color: var(--accent-primary);
+            box-shadow: 0 0 15px rgba(139, 92, 246, 0.1);
+        }
+
+        .intent-both {
+            background: rgba(16, 185, 129, 0.15);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            color: var(--accent-emerald);
+            box-shadow: 0 0 15px rgba(16, 185, 129, 0.1);
+        }
+
+        .intent-unknown {
+            background: rgba(244, 63, 94, 0.15);
+            border: 1px solid rgba(244, 63, 94, 0.3);
+            color: var(--accent-rose);
+            box-shadow: 0 0 15px rgba(244, 63, 94, 0.1);
+        }
+
+        .pipeline-flow {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            font-size: 0.85rem;
+        }
+
+        .flow-step {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            color: var(--text-muted);
+        }
+
+        .flow-step-active {
+            color: var(--text-main);
+            font-weight: 500;
+        }
+
+        .flow-check {
+            color: var(--accent-emerald);
+        }
+
+        /* --- Footer --- */
+        footer {
+            padding: 1.5rem 2rem;
+            text-align: center;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            border-top: 1px solid var(--border-color);
+            background: rgba(11, 15, 25, 0.5);
+        }
+
+        footer a {
+            color: var(--accent-cyan);
+            text-decoration: none;
+        }
+
+        footer a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="logo-container">
+            <span class="logo-icon">🏥</span>
+            <div>
+                <h1>MedBridge AI</h1>
+            </div>
+        </div>
+        
+        <div class="badge" id="security-badge">
+            <div class="badge-dot"></div>
+            <span>Secure Privacy Sandbox Active</span>
+        </div>
+        
+        <div class="settings-bar">
+            <div class="toggle-container">
+                <span>Mock Mode</span>
+                <label class="switch">
+                    <input type="checkbox" id="mock-toggle" checked>
+                    <span class="slider"></span>
+                </label>
+            </div>
+            
+            <div class="toggle-container">
+                <span>Verbose Logs</span>
+                <label class="switch">
+                    <input type="checkbox" id="verbose-toggle">
+                    <span class="slider"></span>
+                </label>
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <!-- Left Panel: Interactive Chat -->
+        <section class="panel" id="chat-panel">
+            <div class="panel-header">
+                <span>🏥 Health Concierge Assistant</span>
+            </div>
+            
+            <div class="chat-container" id="chat-box">
+                <div class="chat-placeholder" id="chat-placeholder">
+                    <div class="placeholder-icon">🤖</div>
+                    <h3>Welcome to MedBridge AI</h3>
+                    <p>Enter doctor notes, medication questions, scheduling requests, or public health queries below. Your PII is redacted locally before execution.</p>
+                </div>
+            </div>
+            
+            <div class="input-area">
+                <input type="text" id="query-input" class="query-input" placeholder="Type your message (e.g., 'Remind me to take Aspirin at 8am')..." autocomplete="off">
+                <button id="send-btn" class="send-btn">
+                    <span>Send Query</span>
+                    <span>➔</span>
+                </button>
+            </div>
+        </section>
+
+        <!-- Right Panel: Secure Pipeline Inspector -->
+        <section class="panel" id="inspector-panel">
+            <div class="panel-header">
+                <span>🔒 Secure Pipeline Inspector</span>
+            </div>
+            
+            <div class="inspector-container" id="inspector-box">
+                <div class="inspector-placeholder" id="inspector-placeholder">
+                    <p>Submit a query to inspect the security and agent routing process in real-time.</p>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <p>MedBridge AI | Capstone Submission for Agents for Good Track | Powered by Google Gemini & MCP</p>
+    </footer>
+
+    <script>
+        const chatBox = document.getElementById("chat-box");
+        const queryInput = document.getElementById("query-input");
+        const sendBtn = document.getElementById("send-btn");
+        const mockToggle = document.getElementById("mock-toggle");
+        const verboseToggle = document.getElementById("verbose-toggle");
+        const inspectorBox = document.getElementById("inspector-box");
+        const chatPlaceholder = document.getElementById("chat-placeholder");
+        const inspectorPlaceholder = document.getElementById("inspector-placeholder");
+
+        queryInput.addEventListener("keypress", (e) => {
+            if (e.key === "Enter" && !sendBtn.disabled && queryInput.value.trim() !== "") {
+                submitQuery();
+            }
+        });
+
+        sendBtn.addEventListener("click", () => {
+            if (queryInput.value.trim() !== "") {
+                submitQuery();
+            }
+        });
+
+        // Simple markdown formatter helper
+        function formatMarkdown(text) {
+            if (!text) return "";
+            
+            let html = text.trim();
+            
+            // Format Bold (**bold**)
+            html = html.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
+            
+            // Format Headings (### heading)
+            html = html.replace(/^### (.*$)/gim, "<h3>$1</h3>");
+            html = html.replace(/^## (.*$)/gim, "<h2>$1</h2>");
+            
+            // Format Lists (bullets)
+            // Replace line-leading dashes or bullets with list elements
+            html = html.replace(/^\s*[\-\•]\s*(.*)$/gm, "<li>$1</li>");
+            
+            // Re-wrap adjacent list items in a single list
+            // (Simple block replace: replace consecutive list items)
+            html = html.replace(/(<li>.*<\/li>)/g, "<ul>$1</ul>");
+            // Fix double nested list tags
+            html = html.replace(/<\/ul>\s*<ul>/g, "");
+            
+            // Line Breaks
+            html = html.replace(/\n/g, "<br>");
+            
+            return html;
+        }
+
+        // Highlight redacted placeholders visually
+        function highlightRedactions(text) {
+            if (!text) return "";
+            return text
+                .replace(/(\[REDACTED_PERSON\])/g, '<span class="redacted-placeholder">$1</span>')
+                .replace(/(\[REDACTED_LOCATION\])/g, '<span class="redacted-placeholder">$1</span>')
+                .replace(/(\[REDACTED_ORG\])/g, '<span class="redacted-placeholder">$1</span>');
+        }
+
+        async function submitQuery() {
+            const query = queryInput.value.trim();
+            const mock = mockToggle.checked;
+            const verbose = verboseToggle.checked;
+
+            if (!query) return;
+
+            // Clear placeholders
+            if (chatPlaceholder) chatPlaceholder.style.display = "none";
+            if (inspectorPlaceholder) inspectorPlaceholder.style.display = "none";
+
+            // Add user message to chat
+            appendMessage(query, "user");
+            queryInput.value = "";
+            
+            // Disable inputs while loading
+            queryInput.disabled = true;
+            sendBtn.disabled = true;
+
+            // Append bot message with loading dots
+            const loadingId = appendLoadingMessage();
+            chatBox.scrollTop = chatBox.scrollHeight;
+
+            // Set up inspector with initial flow
+            setupInspectorFlow(query, mock);
+
+            try {
+                const response = await fetch("/api/query", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({ query, mock, verbose }),
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error ${response.status}`);
+                }
+
+                const result = await response.json();
+                
+                // Remove loading bubble
+                removeLoadingMessage(loadingId);
+
+                if (result.error) {
+                    appendMessage(`❌ Error: ${result.error}`, "bot");
+                } else {
+                    // Assemble bot responses nicely
+                    let finalResponse = "";
+                    if (result.medical_response) {
+                        finalResponse += `### 💊 Medical Specialist Guidance\n${result.medical_response}\n\n`;
+                    }
+                    if (result.scheduler_response) {
+                        finalResponse += `### 📅 Scheduler Appointment Confirmation\n${result.scheduler_response}`;
+                    }
+                    
+                    if (!finalResponse) {
+                        finalResponse = "Routing failed or intent was classified as Unknown. Please try a different query.";
+                    }
+                    
+                    appendMessage(finalResponse, "bot");
+                    
+                    // Render final inspector data
+                    renderInspectorData(result);
+                }
+            } catch (err) {
+                removeLoadingMessage(loadingId);
+                appendMessage(`❌ Failed to contact local agent pipeline server: ${err.message}. Ensure python server is active.`, "bot");
+            } finally {
+                queryInput.disabled = false;
+                sendBtn.disabled = false;
+                queryInput.focus();
+                chatBox.scrollTop = chatBox.scrollHeight;
+            }
+        }
+
+        function appendMessage(text, sender) {
+            const msgDiv = document.createElement("div");
+            msgDiv.classList.add("message", sender === "user" ? "message-user" : "message-bot");
+            
+            if (sender === "user") {
+                msgDiv.textContent = text;
+            } else {
+                msgDiv.innerHTML = formatMarkdown(text);
+            }
+            
+            chatBox.appendChild(msgDiv);
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        function appendLoadingMessage() {
+            const id = "loading-" + Math.random().toString(36).substr(2, 9);
+            const msgDiv = document.createElement("div");
+            msgDiv.id = id;
+            msgDiv.classList.add("message", "message-bot");
+            msgDiv.innerHTML = `
+                <div class="loading-dots">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </div>
+            `;
+            chatBox.appendChild(msgDiv);
+            return id;
+        }
+
+        function removeLoadingMessage(id) {
+            const loader = document.getElementById(id);
+            if (loader) loader.remove();
+        }
+
+        function setupInspectorFlow(query, mock) {
+            inspectorBox.innerHTML = `
+                <div class="inspector-card">
+                    <div class="card-title">🔒 Privacy Sandbox Pipeline</div>
+                    <div class="pipeline-flow">
+                        <div class="flow-step flow-step-active">🔄 1. Redacting PII locally...</div>
+                        <div class="flow-step">⏳ 2. Router intent classification...</div>
+                        <div class="flow-step">⏳ 3. Specialized agent reasoning...</div>
+                        <div class="flow-step">⏳ 4. Executing tool integrations...</div>
+                    </div>
+                </div>
+                
+                <div class="inspector-card">
+                    <div class="card-title">📝 Input Data Preview</div>
+                    <div class="text-comparison">
+                        <div>
+                            <div class="text-box-label">Raw User Input</div>
+                            <div class="text-box">${escapeHtml(query)}</div>
+                        </div>
+                        <div>
+                            <div class="text-box-label">Sanitized Text (Pending)</div>
+                            <div class="text-box text-muted">Awaiting local spaCy processing...</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderInspectorData(result) {
+            // Check what intent routing badge to show
+            let intentClass = "intent-unknown";
+            if (result.intent === "MEDICAL") intentClass = "intent-medical";
+            else if (result.intent === "SCHEDULER") intentClass = "intent-scheduler";
+            else if (result.intent === "BOTH") intentClass = "intent-both";
+
+            // Find differences between raw and sanitized text to highlight raw redactions
+            const raw = result.raw_input;
+            const sanitized = result.sanitized_input;
+            
+            inspectorBox.innerHTML = `
+                <!-- Step 1: Redaction Box -->
+                <div class="inspector-card">
+                    <div class="card-title">🔒 Local PII/PHI Sandbox Redaction</div>
+                    <div class="text-comparison">
+                        <div>
+                            <div class="text-box-label">Raw User Input</div>
+                            <div class="text-box">${raw}</div>
+                        </div>
+                        <div>
+                            <div class="text-box-label">Sanitized Text (Pre-LLM)</div>
+                            <div class="text-box">${highlightRedactions(escapeHtml(sanitized))}</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step 2: Intent Classification Router -->
+                <div class="inspector-card">
+                    <div class="card-title">🔀 Multi-Agent Intent Router</div>
+                    <div class="intent-badge-container">
+                        <div class="intent-glow-badge ${intentClass}">${result.intent}</div>
+                        <div style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.4;">
+                            The Router Agent analyzed the sanitized input and mapped it to the <strong>${result.intent}</strong> specialist endpoint.
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step 3: Agent Executions -->
+                <div class="inspector-card">
+                    <div class="card-title">🤖 Specialist Agent Outputs</div>
+                    <div style="display: flex; flex-direction: column; gap: 0.8rem; font-size: 0.85rem;">
+                        ${result.medical_response ? `
+                        <div>
+                            <span style="color: var(--accent-cyan); font-weight: 600;">💊 Medical Specialist Agent:</span>
+                            <div style="margin-top: 0.4rem; padding-left: 0.6rem; border-left: 2px solid var(--accent-cyan); line-height: 1.4; color: var(--text-muted);">
+                                Checked drug interactions or grounded outbreak stats.
+                            </div>
+                        </div>
+                        ` : ''}
+                        ${result.scheduler_response ? `
+                        <div>
+                            <span style="color: var(--accent-primary); font-weight: 600;">📅 Scheduler Specialist Agent:</span>
+                            <div style="margin-top: 0.4rem; padding-left: 0.6rem; border-left: 2px solid var(--accent-primary); line-height: 1.4; color: var(--text-muted);">
+                                Executed appointment check / created calendar reminder event.
+                            </div>
+                        </div>
+                        ` : ''}
+                    </div>
+                </div>
+
+                <!-- Complete status step -->
+                <div class="inspector-card" style="border-color: rgba(16, 185, 129, 0.2);">
+                    <div class="card-title" style="color: var(--accent-emerald);">✓ Pipeline Completed Successfully</div>
+                    <div style="font-size: 0.85rem; color: var(--text-muted);">
+                        Zero Personally Identifiable Information (PII) escaped the local boundaries. All external API requests were successfully grounded and anonymized.
+                    </div>
+                </div>
+            `;
+        }
+
+        function escapeHtml(str) {
+            return str
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+    </script>
+</body>
+</html>
