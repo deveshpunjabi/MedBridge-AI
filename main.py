@@ -85,15 +85,53 @@ BANNER = r"""
 # CLI Definition
 # =============================================================================
 
-@click.group()
+@click.group(invoke_without_command=True)
+@click.pass_context
 @click.version_option(version="1.0.0", prog_name="MedBridge AI")
-def cli():
+def cli(ctx):
     """
     MedBridge AI — A secure, multi-agent health concierge.
 
     Powered by Google Gemini, MCP tools, and spaCy NLP.
     """
-    pass
+    if ctx.invoked_subcommand is None:
+        _run_interactive_console()
+
+
+def _run_interactive_console() -> None:
+    """
+    Launches an interactive shell console for querying MedBridge AI.
+    """
+    click.echo(click.style(BANNER, fg="cyan", bold=True))
+    click.echo(click.style("🌐 Interactive Health Concierge Console", fg="cyan", bold=True))
+    click.echo("Type your health question or task below.")
+    click.echo("Type 'exit', 'quit', or press Enter with empty text to exit.\n")
+    
+    mock = click.confirm("Do you want to run in offline MOCK mode? (No API keys required)", default=True)
+    verbose = click.confirm("Do you want to enable verbose logging?", default=False)
+    
+    mode_label = "🧪 MOCK MODE" if mock else "🔑 LIVE MODE"
+    click.echo(click.style(f"\nInitialized in {mode_label}. Console is active.", fg="cyan", bold=True))
+    
+    while True:
+        click.echo(click.style("─" * 60, fg="blue"))
+        try:
+            query_text = click.prompt(
+                click.style("💬 Enter your health query", fg="green", bold=True),
+                default="",
+                show_default=False,
+            )
+        except (KeyboardInterrupt, EOFError):
+            click.echo(click.style("\n\nGoodbye! Stay healthy! ❤️\n", fg="cyan"))
+            break
+            
+        query_text = query_text.strip()
+        if not query_text or query_text.lower() in ("exit", "quit", "q"):
+            click.echo(click.style("\nGoodbye! Stay healthy! ❤️\n", fg="cyan"))
+            break
+            
+        # Execute the pipeline (suppress the banner in the inner execution)
+        asyncio.run(_process_query(query_text, None, mock, verbose, show_banner=False))
 
 
 @cli.command()
@@ -145,6 +183,7 @@ async def _process_query(
     input_file: Optional[str],
     mock: bool,
     verbose: bool,
+    show_banner: bool = True,
 ) -> None:
     """
     Main async pipeline that orchestrates the full MedBridge AI flow.
@@ -157,10 +196,10 @@ async def _process_query(
     # -----------------------------------------------------------------
     # Step 0: Display banner
     # -----------------------------------------------------------------
-    click.echo(click.style(BANNER, fg="cyan", bold=True))
-
-    mode_label = "🧪 MOCK MODE" if mock else "🔑 LIVE MODE"
-    click.echo(click.style(f"  Mode: {mode_label}\n", fg="cyan"))
+    if show_banner:
+        click.echo(click.style(BANNER, fg="cyan", bold=True))
+        mode_label = "🧪 MOCK MODE" if mock else "🔑 LIVE MODE"
+        click.echo(click.style(f"  Mode: {mode_label}\n", fg="cyan"))
 
     # -----------------------------------------------------------------
     # Step 1: Get input text
@@ -437,5 +476,13 @@ def _get_input_text(
 # Entry Point
 # =============================================================================
 
-if __name__ == "__main__":
+def main_entry():
+    import sys
+    # Auto-default to the 'query' command if the first argument is not a known command or option of the root group
+    if len(sys.argv) > 1 and sys.argv[1] not in ("query", "--help", "-h", "--version", "-v"):
+        sys.argv.insert(1, "query")
     cli()
+
+
+if __name__ == "__main__":
+    main_entry()

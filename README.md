@@ -156,10 +156,10 @@ python3 -m venv venv
 source venv/bin/activate
 ```
 
-### 2. Install Dependencies
-Install packages and download spaCy's English language model:
+### 2. Install Dependencies & Global Command
+Install packages, register the `med-ai` command line executable globally (in editable mode), and download spaCy's English language model:
 ```bash
-pip install -r requirements.txt
+pip install -e .
 python -m spacy download en_core_web_sm
 ```
 
@@ -175,16 +175,16 @@ GEMINI_API_KEY=your_google_gemini_api_key_here
 
 ## 🛠️ Verification & Demo Commands
 
-### 1. Validate the local PII Redactor
-Verify that spaCy NER is correctly redacting patient details while whitelisting medications:
+### 1. Launch the Interactive Console
+You can launch the program in interactive mode by running the command with no arguments:
 ```bash
-python security/pii_redactor.py
+med-ai
 ```
 
 ### 2. Run Pipeline in Mock Mode (No API Key Required)
-Run a full test query offline to see the coordinated multi-agent execution in action:
+Run a query directly from the terminal (the CLI automatically routes raw queries directly to the `query` command):
 ```bash
-python main.py query --mock "I am taking Aspirin and Warfarin. Remind me to check with Dr. Jones next Monday at 10am."
+med-ai --mock "I am taking Aspirin and Warfarin. Remind me to check with Dr. Jones next Monday at 10am."
 ```
 
 #### Expected Output logs:
@@ -255,11 +255,11 @@ MedBridge AI processing complete.
 ### 3. Run live queries (Requires API Key)
 * **Check Drug Interactions via Live MCP FDA Tools**:
   ```bash
-  python main.py query "Are there any interactions between Metformin and Contrast Dye?"
+  med-ai "Are there any interactions between Metformin and Contrast Dye?"
   ```
 * **Query Outbreaks via Gemini Google Search Grounding**:
   ```bash
-  python main.py query "What is the latest update on the seasonal influenza outbreak in New York?"
+  med-ai "What is the latest update on the seasonal influenza outbreak in New York?"
   ```
 
 ---
