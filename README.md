@@ -27,18 +27,18 @@ The following Mermaid diagram shows the pipeline flow from raw user input to spe
 
 ```mermaid
 graph TD
-    A[User Input CLI] --> B[PII Redactor spaCy NER]
-    B -->|Sanitized Text| C[Router Agent Gemini]
-    C -->|Classified Intent| D{Intent Router}
-    D -->|MEDICAL / BOTH| E[Medical Specialist Agent]
-    D -->|SCHEDULER / BOTH| F[Scheduler Specialist Agent]
-    D -->|UNKNOWN| G[Help Screen]
-    E -->|MCP request| H[stdio JSON-RPC connection]
+    A["User Input (CLI)"] --> B["PII Redactor (spaCy NER)"]
+    B -->|Sanitized Text| C["Router Agent (Gemini)"]
+    C -->|Classified Intent| D{"Intent Router"}
+    D -->|MEDICAL / BOTH| E["Medical Specialist Agent"]
+    D -->|SCHEDULER / BOTH| F["Scheduler Specialist Agent"]
+    D -->|UNKNOWN| G["Help Screen"]
+    E -->|MCP request| H["stdio JSON-RPC connection"]
     F -->|MCP request| H
-    H --> I[FastMCP Server Subprocess]
-    I -->|Drug Check| J[OpenFDA adverse events API]
-    I -->|Schedule Check| K[Mock Calendar API]
-    E -->|Grounding| L[Gemini Google Search Grounding]
+    H --> I["FastMCP Server Subprocess"]
+    I -->|Drug Check| J["OpenFDA adverse events API"]
+    I -->|Schedule Check| K["Mock Calendar API"]
+    E -->|Grounding| L["Gemini Google Search Grounding"]
 ```
 
 ---
