@@ -4,7 +4,7 @@ setup(
     name="medbridge-ai",
     version="1.0.0",
     packages=find_packages(),
-    py_modules=["main", "config"],
+    py_modules=["main", "config", "rate_limiter"],
     install_requires=[
         "click>=8.1.0",
         "google-genai>=1.0.0",

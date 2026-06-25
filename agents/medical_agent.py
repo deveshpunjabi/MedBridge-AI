@@ -1,9 +1,4 @@
-"""
-MedBridge AI - Medical Agent
-
-Handles medical queries by checking drug interactions via MCP or
-utilizing Google Search grounding for public health requests.
-"""
+# Medical Agent
 
 import json
 from typing import Optional
@@ -156,7 +151,31 @@ async def run_medical_agent(
                     click.echo(click.style("   ⚠️ Rehydration failed. Formatting tool result directly.", fg="yellow"))
                     return _format_tool_result_fallback(fc.name, dict(fc.args), tool_result)
 
-        return response.text if response.text else "Unable to generate medical response. ⚕️ Please consult a professional."
+        base_text = response.text if response.text else "Unable to generate medical response. ⚕️ Please consult a professional."
+        
+        try:
+            if response.candidates and response.candidates[0].grounding_metadata:
+                metadata = response.candidates[0].grounding_metadata
+                if metadata and hasattr(metadata, "web_search_queries") and metadata.web_search_queries:
+                    sources_text = "\n\n🌐 **Search Grounding Sources (Antigravity):**\n"
+                    queries = ", ".join(f'"{q}"' for q in metadata.web_search_queries)
+                    sources_text += f"• **Queries Executed:** {queries}\n"
+                    
+                    seen_uris = set()
+                    if hasattr(metadata, "grounding_chunks") and metadata.grounding_chunks:
+                        for chunk in metadata.grounding_chunks:
+                            if chunk.web and chunk.web.uri:
+                                uri = chunk.web.uri
+                                title = chunk.web.title if chunk.web.title else uri
+                                if uri not in seen_uris:
+                                    seen_uris.add(uri)
+                                    sources_text += f"• [{title}]({uri})\n"
+                    if seen_uris:
+                        base_text += sources_text
+        except Exception:
+            pass
+
+        return base_text
 
     except Exception as e:
         click.echo(click.style(f"   ❌ Medical Agent error: {e}", fg="red"))

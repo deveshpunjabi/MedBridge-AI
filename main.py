@@ -1,10 +1,3 @@
-"""
-MedBridge AI - CLI and GUI Entry Point
-
-Orchestrates the multi-agent pipeline: PII Redaction -> Routing -> Agent Execution.
-Also hosts a local HTTP server serving a web GUI.
-"""
-
 import asyncio
 import sys
 from typing import Optional
@@ -20,21 +13,7 @@ if sys.platform == "win32":
 import config
 from security.pii_redactor import redact_pii, redact_pii_mock
 
-BANNER = r"""
-╔═══════════════════════════════════════════════════════════════════╗
-║                                                                   ║
-║   ███╗   ███╗███████╗██████╗ ██████╗ ██████╗ ██╗██████╗  ██████╗ ║
-║   ████╗ ████║██╔════╝██╔══██╗██╔══██╗██╔══██╗██║██╔══██╗██╔════╝ ║
-║   ██╔████╔██║█████╗  ██║  ██║██████╔╝██████╔╝██║██║  ██║██║  ███╗║
-║   ██║╚██╔╝██║██╔══╝  ██║  ██║██╔══██╗██╔══██╗██║██║  ██║██║   ██║║
-║   ██║ ╚═╝ ██║███████╗██████╔╝██████╔╝██║  ██║██║██████╔╝╚██████╔╝║
-║   ╚═╝     ╚═╝╚══════╝╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝╚═════╝  ╚═════╝║
-║                          A I                                      ║
-║                                                                   ║
-║   🏥 Your Secure Health Concierge — Powered by Multi-Agent AI     ║
-║                                                                   ║
-╚═══════════════════════════════════════════════════════════════════╝
-"""
+BANNER = "🏥 MedBridge AI - Secure Health Concierge"
 
 @click.group(invoke_without_command=True)
 @click.pass_context
@@ -50,7 +29,7 @@ def _run_interactive_console() -> None:
     click.echo("Type your health question or task below.")
     click.echo("Type 'exit', 'quit', or press Enter with empty text to exit.\n")
     
-    mock = click.confirm("Do you want to run in offline MOCK mode? (No API keys required)", default=True)
+    mock = click.confirm("Do you want to run in offline MOCK mode? (No API keys required)", default=False)
     verbose = click.confirm("Do you want to enable verbose logging?", default=False)
     
     mode_label = "🧪 MOCK MODE" if mock else "🔑 LIVE MODE"

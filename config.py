@@ -1,7 +1,3 @@
-"""
-MedBridge AI - Central Configuration
-"""
-
 import os
 import sys
 from dotenv import load_dotenv

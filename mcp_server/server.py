@@ -1,8 +1,4 @@
-"""
-MedBridge AI - MCP Server (Model Context Protocol)
-
-Provides tools to check drug interactions via OpenFDA and schedule calendar events.
-"""
+# MCP Server
 
 import sys
 import requests

@@ -1,8 +1,4 @@
-"""
-MedBridge AI - Scheduler Agent
-
-Handles scheduling and calendar-related queries using MCP tools.
-"""
+# Scheduler Agent
 
 import json
 from typing import Optional

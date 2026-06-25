@@ -1,136 +1,114 @@
-# MedBridge AI: A Secure, Multi-Agent Health Concierge 🏥
+# MedBridge AI: Secure Multi-Agent Health Concierge
 
-**Submission Category:** Agents for Good  
-**Kaggle Competition:** [AI Agents: Intensive Vibe Coding Capstone Project](https://www.kaggle.com/competitions/vibecoding-agents-capstone-project/)  
-**GitHub Repository:** [deveshpunjabi/MedBridge-AI](https://github.com/deveshpunjabi/MedBridge-AI)
+## The Problem: Fragmented Care & Medical Misinformation
 
----
+Managing personal health, especially chronic conditions or navigating public health concerns, is a fragmented, high-stakes experience. Patients struggle to synthesize information from disparate sources: doctor's notes, medication labels, and conflicting online articles. During public health events, localized, actionable guidance is often buried under waves of misinformation.
 
-## 🎯 Project Overview
-
-**MedBridge AI** is a locally-deployable, security-first multi-agent system designed to act as a personal health concierge. It takes messy, natural language medical queries (e.g., doctor notes, prescription updates, or symptom questions) and safely processes them through a multi-agent pipeline to:
-1. 🔒 **Tokenize PII/PHI locally** using spaCy NER preceding LLM transmission, mapping names and locations to dynamic index placeholders (e.g. `[PERSON_0]`).
-2. 🔄 **Rehydrate output response strings** locally on the client interface to display real names post-execution, preventing unencrypted data flight to external models.
-3. 🔀 **Classify user intent** using a Gemini-powered Router Agent with strict schema constraints to dispatch queries to specialized agent endpoints.
-4. 🧠 **Track multi-turn conversation memory** securely, saving only tokenized turns to prevent local database privacy leaks.
-5. 💊 **Validate drug interactions** via a Medical Specialist Agent calling a stdio-based FastMCP server querying the live OpenFDA API.
-6. 📊 **Visualize adverse event risks** dynamically using progress bars and risk color-coding inside the local Web GUI dashboard.
-7. 🌐 **Ground public health inquiries** using native Gemini Google Search grounding for real-time citations.
-
-All of this is wrapped in a highly polished Click CLI `med-ai`, a persistent interactive shell loop, an offline-safe `--mock` mode, and a gorgeous glassmorphic local Web GUI (`med-ai gui`).
+A simple chatbot cannot solve this. It requires an **autonomous system** that can reason, securely query live medical APIs, cross-reference data, and take action.
 
 ---
 
-## 🏗️ Architecture & Data Flow
+## The Solution: MedBridge AI
 
-```
-                      User Input (CLI / Web GUI)
-                                 │
-                                 ▼
-                     ┌──────────────────────┐
-                     │ Local PII Tokenizer  │  spaCy NER — maps entities to [PERSON_0] etc.
-                     └──────────┬───────────┘
-                                │ (Sanitized Query Text + History Context)
-                                ▼
-                     ┌──────────────────────┐
-                     │     Router Agent     │  Gemini 2.0 — Structured Output Enum
-                     └──────────┬───────────┘
-                                │
-                 ┌──────────────┼──────────────┐
-                 ▼              ▼              ▼
-            (MEDICAL)         (BOTH)      (SCHEDULER)
-                 │              │              │
-                 │              ├──────────────┘
-                 ▼              ▼
-        ┌────────────────┐ ┌────────────────┐
-        │ Medical Agent  │ │Scheduler Agent │
-        │ • OpenFDA MCP  │ │ • Calendar MCP │
-        │ • Google Search│ │   Tool         │
-        │   Grounding    │ │                │
-        └────────┬───────┘ └────────┬───────┘
-                 │                  │
-                 └────────┬─────────┘
-                          ▼ (JSON-RPC stdio transport)
-        ┌───────────────────────────────────┐
-        │        Local MCP Server           │  FastMCP Subprocess
-        │  • get_drug_interactions          │  → OpenFDA Adverse Events API
-        │  • create_calendar_event          │  → Calendar Mock
-        └─────────────────┬─────────────────┘
-                          │ (Sanitized Output)
-                          ▼
-                     ┌──────────────────────┐
-                     │ Re-hydration Loop    │  Restores original names using local map
-                     └──────────┬───────────┘
-                                │
-                                ▼
-                     User Output Display & FDA Charts
+MedBridge AI is a secure, locally-deployable multi-agent system designed for the **Agents for Good** track. It acts as a personal and public health concierge. Users can input messy, real-world text (e.g., a doctor's email or a list of symptoms), and the system routes the query to specialized agents that fetch live data, check for drug interactions, schedule reminders, and provide grounded medical guidance.
+
+**Why Agents?** Standard LLMs can hallucinate medical facts. MedBridge AI uses a Multi-Agent architecture to separate concerns: one agent strictly handles data retrieval via APIs, another handles scheduling, and a router dictates the flow. This ensures deterministic, safe, and verifiable actions.
+
+---
+
+## Architecture & System Flow
+
+```mermaid
+graph TD
+    User([User Input]) --> PII[PII Redactor - Local spaCy]
+    PII -->|Redacted Query| Router{Router Agent}
+    
+    Router -->|MEDICAL / BOTH| Med[Medical Agent]
+    Router -->|SCHEDULER / BOTH| Sched[Scheduler Agent]
+    Router -->|UNKNOWN| Greet[Greeting / Help Interceptor]
+    
+    Med -->|MCP Call| FDA[OpenFDA API get_drug_interactions]
+    Med -->|No Drugs| Web[Google Search Grounding]
+    
+    Sched -->|MCP Call| Cal[Mock Calendar create_calendar_event]
+    
+    FDA --> MedResp[Raw Medical Response]
+    Web --> MedResp
+    Cal --> SchedResp[Raw Scheduler Response]
+    
+    MedResp --> Rehydrator[Rehydrator - Restore PII]
+    SchedResp --> Rehydrator
+    Greet --> Rehydrator
+    
+    Rehydrator --> Final([Final Output to CLI/GUI])
 ```
 
 ---
 
-## 🏆 Rubric Alignment & Core Features
+## Architecture & Course Concept Integration
 
-| Rubric Criterion | MedBridge AI Implementation | File Reference |
-| :--- | :--- | :--- |
-| **ADK / Agent Pattern** | Multi-agent router-specialist architecture where a Router Agent classifies intent and sequences execution of specialized agents. | [router_agent.py](file:///D:/Hackathon/5%20days%20Ai%20agents%20-%20kaggle/medbridge-ai/agents/router_agent.py) |
-| **MCP Server** | A standard-compliant Model Context Protocol server built with `FastMCP` that runs as a separate subprocess and communicates over stdio JSON-RPC. | [server.py](file:///D:/Hackathon/5%20days%20Ai%20agents%20-%20kaggle/medbridge-ai/mcp_server/server.py) |
-| **Security** | Local, spaCy NER-based tokenization of PII before LLM queries, rehydration loop, drug whitelist, and `.env` secret containment. | [pii_redactor.py](file:///D:/Hackathon/5%20days%20Ai%20agents%20-%20kaggle/medbridge-ai/security/pii_redactor.py) |
-| **Grounding** | Medical Agent uses native Gemini SDK Google Search grounding to answer general public health and disease outbreak questions with web citations. | [medical_agent.py](file:///D:/Hackathon/5%20days%20Ai%20agents%20-%20kaggle/medbridge-ai/agents/medical_agent.py) |
-| **CLI Deployability** | Standard-compliant `med-ai` executable registered via `setup.py` that supports query strings, file parsing, interactive console mode, and offline mock degradation. | [main.py](file:///D:/Hackathon/5%20days%20Ai%20agents%20-%20kaggle/medbridge-ai/main.py) |
-| **Code Quality** | Full type hinting, modular directory structure, docstrings following PEP 257, and standard error fallback paths. | Entire codebase |
+This project leverages the concepts of agent-driven application design, focusing on 5 key areas:
+
+### 1. Multi-Agent System (ADK)
+Built with modular agent architecture:
+*   **Router Agent:** The entry point that classifies user intent (e.g., `MEDICAL`, `SCHEDULER`, `BOTH`, or `UNKNOWN`).
+    *   *Code:* See [agents/router_agent.py](file:///D:/Hackathon/5%20days%20Ai%20agents%20-%20kaggle/medbridge-ai/agents/router_agent.py).
+*   **Medical Agent:** Handles drug interaction checks and general public health information.
+    *   *Code:* See [agents/medical_agent.py](file:///D:/Hackathon/5%20days%20Ai%20agents%20-%20kaggle/medbridge-ai/agents/medical_agent.py).
+*   **Scheduler Agent:** Extracts times and dates to set up reminders and appointments.
+    *   *Code:* See [agents/scheduler_agent.py](file:///D:/Hackathon/5%20days%20Ai%20agents%20-%20kaggle/medbridge-ai/agents/scheduler_agent.py).
+
+### 2. Model Context Protocol (MCP) Server
+To provide agents with real-time, accurate data access, the system includes a custom MCP server:
+*   **Tools Exposed:**
+    *   `get_drug_interactions` (calls the OpenFDA Adverse Events API).
+    *   `create_calendar_event` (mocks scheduling a system/calendar event).
+*   *Code:* See [mcp_server/server.py](file:///D:/Hackathon/5%20days%20Ai%20agents%20-%20kaggle/medbridge-ai/mcp_server/server.py).
+
+### 3. Privacy & Security (PII Redaction Middleware)
+Healthcare data requires strict privacy. Before text is sent to any cloud LLM, it passes through a local **PII Redaction Middleware** using spaCy:
+*   Redacts personal names, locations, and organizations (e.g., *"Mr. Smith"* becomes `[PERSON_0]`).
+*   Whitelists medication names (e.g., *"Lisinopril"*, *"Potassium"*) to prevent them from being redacted.
+*   Rehydrates the agent responses to put the redacted details back in before showing them to the user.
+*   *Code:* See [security/pii_redactor.py](file:///D:/Hackathon/5%20days%20Ai%20agents%20-%20kaggle/medbridge-ai/security/pii_redactor.py).
+
+### 4. Dynamic Web Grounding
+When the Medical Agent encounters general health queries instead of specific drug lists, it enables Google Search grounding to retrieve verified search data, citing its sources to prevent hallucination.
+
+### 5. Multi-Interface Deployability (CLI & Web GUI)
+The codebase includes:
+*   A CLI tool built with Python's `click` library (run using `python main.py query "your query"`).
+*   A responsive Web GUI serving a dashboard with security inspector logs and interactive charts (run using `python main.py gui`).
 
 ---
 
-## 🔑 Key Technical Design Decisions
+## Demo Scenario Walkthrough
 
-1. **PII Tokenization & Rehydration Loop**: destructively redacting names confusingly breaks downstream context. Tokenization preserves entity relationships (e.g. `[PERSON_0]` vs `[PERSON_1]`) while letting local re-hydration present customized user output post-execution.
-2. **Zero-PII Local History Memory**: Multi-turn conversation state is saved safely to `conversation_memory.json` by only storing the sanitized inputs (tokens) and raw agent responses. No PII resides in the persistent database.
-3. **OpenFDA Chart Telemetry**: Rather than dumping massive JSON text logs in the browser, the Web GUI parses FDA response counts to build visual HTML risk bars, showing high/medium/low probability warnings in colors.
-4. **Safety Sequencing**: If intent is classified as `BOTH`, the system calls the Medical Specialist Agent first to verify medication compatibility before triggering scheduling tools.
-5. **Robust spaCy Whitelisting**: Simple NER tools mistake medications (like *Aspirin*) for `PERSON` entities. We built a custom medical whitelist filter to prevent over-redaction of medical terms.
-6. **Case-Sensitive Mock NER Regex**: Character classes verify greeting names follow specific prefixes case-insensitively, while ensuring the name extraction group enforces case-sensitive capitalization (protecting lowercase verbs from redaction).
+### 1. Input
+A messy, forwarded email from a doctor:
+> *"Hi, starting Mr. Smith on Lisinopril 10mg. He is also taking Potassium supplements. Remind him to check blood pressure next Tuesday."*
 
----
+### 2. Security Middleware (Local PII Masking)
+The local spaCy engine tokenizes the inputs. *"Smith"* is detected as a person and masked, while *"Lisinopril"* and *"Potassium"* are whitelisted as drugs and left unredacted:
+*   **Redacted Prompt:** *"Hi, starting Mr. [PERSON_0] on Lisinopril 10mg. He is also taking Potassium supplements. Remind him to check blood pressure next Tuesday."*
 
-## 🚀 Getting Started & Execution
+### 3. Routing
+The Router Agent classifies the intent as `BOTH` (requires both medical drug checks and scheduling reminders).
 
-### 1. Installation
-Ensure Python dependencies and spaCy language models are installed:
-```bash
-pip install -e .
-python -m spacy download en_core_web_sm
+### 4. Medical Agent (MCP Call to OpenFDA)
+The Medical Agent recognizes the two medications and calls the MCP tool:
+```python
+get_drug_interactions(drug_list=["Lisinopril", "Potassium supplements"])
+```
+It returns the interaction warning regarding ACE inhibitors (Lisinopril) and potassium supplements increasing the risk of hyperkalemia (high blood potassium levels).
+
+### 5. Scheduler Agent (MCP Call to Calendar)
+The Scheduler Agent extracts the action and time and calls the calendar tool:
+```python
+create_calendar_event(title="Check blood pressure", date_time="next Tuesday at 9:00 AM")
 ```
 
-### 2. Configuration
-Copy the environment variables template and configure your API key:
-```bash
-cp .env.example .env
-# Set GEMINI_API_KEY=your_gemini_api_key_here
-```
-
-### 3. Run Commands
-
-* **Launch Web GUI**:
-  ```bash
-  med-ai gui
-  ```
-
-* **Launch Interactive Terminal Console**:
-  ```bash
-  med-ai
-  ```
-
-* **Clear Conversation History**:
-  ```bash
-  med-ai clear
-  ```
-
-* **Mock Run (Offline-safe)**:
-  ```bash
-  med-ai --mock "I am Alice. Check drug interactions between Aspirin and Warfarin. Call Dr. Bob next Monday."
-  ```
-
-* **Live Mode (Requires API Key)**:
-  ```bash
-  med-ai "Are there any interactions between Aspirin and Warfarin?"
-  ```
+### 6. Output & Rehydration
+The responses are merged, and the rehydration helper restores `[PERSON_0]` back to `Mr. Smith`.
+*   **Medical response:** Explains the risk of hyperkalemia when combining Lisinopril and potassium supplements, and prompts the patient to consult their doctor.
+*   **Scheduler response:** Confirms the calendar event reminder has been scheduled for next Tuesday at 9:00 AM.

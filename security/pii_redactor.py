@@ -1,10 +1,3 @@
-"""
-MedBridge AI - PII Redaction Middleware
-
-Identifies and masks Personally Identifiable Information (PII)
-and Protected Health Information (PHI) before passing text to the LLM.
-"""
-
 from typing import Dict, List, Tuple
 import click
 
@@ -34,7 +27,7 @@ DRUG_WHITELIST: set = {
     "levothyroxine", "albuterol", "furosemide", "tramadol", "clopidogrel",
     "pantoprazole", "montelukast", "escitalopram", "rosuvastatin",
     "duloxetine", "venlafaxine", "insulin", "ozempic", "wegovy",
-    "penicillin", "ciprofloxacin", "azithromycin", "doxycycline",
+    "penicillin", "ciprofloxacin", "azithromycin", "doxycycline", "potassium",
 }
 
 def redact_pii(text: str, verbose: bool = False) -> tuple[str, dict[str, str]]:

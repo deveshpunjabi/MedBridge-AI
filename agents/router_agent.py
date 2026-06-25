@@ -1,9 +1,4 @@
-"""
-MedBridge AI - Router Agent (Intent Classifier)
-
-Classifies sanitized user queries into routing categories:
-MEDICAL, SCHEDULER, BOTH, or UNKNOWN.
-"""
+# Router Agent (Intent Classifier)
 
 import json
 from typing import Optional
