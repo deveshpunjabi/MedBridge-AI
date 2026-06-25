@@ -97,7 +97,7 @@ DRUG_WHITELIST: set = {
 # Core Redaction Function
 # =============================================================================
 
-def redact_pii(text: str, verbose: bool = False) -> str:
+def redact_pii(text: str, verbose: bool = False) -> tuple[str, dict[str, str]]:
     """
     Redact PII/PHI from input text using spaCy NER.
 
@@ -109,15 +109,15 @@ def redact_pii(text: str, verbose: bool = False) -> str:
         verbose: If True, prints details about each redacted entity.
 
     Returns:
-        Sanitized text with PII replaced by labeled placeholders.
-
-    Example:
-        >>> redact_pii("Dr. Smith in New York prescribed Lisinopril.")
-        'Dr. [REDACTED_PERSON] in [REDACTED_LOCATION] prescribed Lisinopril.'
+        A tuple of (tokenized_text, token_map) where tokens represent sanitized PII.
     """
     doc = nlp(text)
     redacted_text = text
+    token_map = {}
     entities_found: List[Tuple[str, str, str]] = []
+    
+    # Counter for indexes
+    counts = {"PERSON": 0, "GPE": 0, "ORG": 0}
 
     # Iterate in REVERSE order to preserve character indices during replacement.
     # If we replaced from left-to-right, each replacement would shift the
@@ -128,32 +128,38 @@ def redact_pii(text: str, verbose: bool = False) -> str:
             continue
 
         if ent.label_ in ENTITY_REDACTION_MAP:
-            placeholder = ENTITY_REDACTION_MAP[ent.label_]
+            label = ent.label_
+            index = counts.get(label, 0)
+            counts[label] = index + 1
+            
+            token = f"[{label}_{index}]"
+            token_map[token] = ent.text
+            
             redacted_text = (
                 redacted_text[:ent.start_char]
-                + placeholder
+                + token
                 + redacted_text[ent.end_char:]
             )
-            entities_found.append((ent.text, ent.label_, placeholder))
+            entities_found.append((ent.text, ent.label_, token))
 
     if verbose and entities_found:
-        click.echo(click.style("   PII entities redacted:", fg="yellow"))
-        for original, label, placeholder in reversed(entities_found):
+        click.echo(click.style("   PII entities tokenized:", fg="yellow"))
+        for original, label, token in reversed(entities_found):
             click.echo(
                 click.style(f"     - {label}: ", fg="yellow")
-                + f"'{original}' -> {placeholder}"
+                + f"'{original}' -> {token}"
             )
 
-    return redacted_text
+    return redacted_text, token_map
 
 
 # =============================================================================
 # Mock Redaction (for --mock mode)
 # =============================================================================
 
-def redact_pii_mock(text: str, verbose: bool = False) -> str:
+def redact_pii_mock(text: str, verbose: bool = False) -> tuple[str, dict[str, str]]:
     """
-    Lightweight mock PII redaction for offline testing.
+    Lightweight mock PII tokenization for offline testing.
 
     Uses simple string replacement instead of spaCy NER. This allows the
     full pipeline to run without the spaCy model installed, which is useful
@@ -164,31 +170,47 @@ def redact_pii_mock(text: str, verbose: bool = False) -> str:
         verbose: If True, prints mock redaction notice.
 
     Returns:
-        Text with basic pattern-based redaction applied.
+        A tuple of (tokenized_text, token_map).
     """
     import re
 
     redacted = text
+    token_map = {}
+    counts = {"PERSON": 0}
 
-    # Simple patterns for common PII (not production-grade — mock only)
     # Pattern: "Dr. <Name>" or "Mr./Mrs./Ms. <Name>"
+    def repl_dr(match):
+        prefix = match.group(1)
+        name = match.group(0).replace(prefix, "").strip()
+        token = f"[PERSON_{counts['PERSON']}]"
+        counts["PERSON"] += 1
+        token_map[token] = name
+        return f"{prefix} {token}"
+
     redacted = re.sub(
         r"\b(Dr\.|Mr\.|Mrs\.|Ms\.)\s+[A-Z][a-z]+",
-        r"\1 [REDACTED_PERSON]",
+        repl_dr,
         redacted,
     )
 
     # Pattern: Capitalized words that look like names (after "I am" / "my name is")
+    def repl_name(match):
+        name = match.group(1)
+        token = f"[PERSON_{counts['PERSON']}]"
+        counts["PERSON"] += 1
+        token_map[token] = name
+        return match.group(0).replace(name, token)
+
     redacted = re.sub(
         r"\b(?:[Ii]\s+[Aa]m|[Mm]y\s+[Nn]ame\s+[Ii]s|[Pp]atient)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)",
-        lambda m: m.group(0).replace(m.group(1), "[REDACTED_PERSON]"),
+        repl_name,
         redacted,
     )
 
     if verbose:
-        click.echo(click.style("   [Mock PII redaction applied]", fg="yellow"))
+        click.echo(click.style("   [Mock PII tokenization applied]", fg="yellow"))
 
-    return redacted
+    return redacted, token_map
 
 
 # =============================================================================
@@ -213,5 +235,6 @@ if __name__ == "__main__":
     click.echo(click.style("\n=== PII Redactor Self-Test ===\n", bold=True))
     for text in test_inputs:
         click.echo(f"  Input:  {text}")
-        result = redact_pii(text, verbose=True)
-        click.echo(f"  Output: {result}\n")
+        result, mapping = redact_pii(text, verbose=True)
+        click.echo(f"  Output: {result}")
+        click.echo(f"  Map:    {mapping}\n")

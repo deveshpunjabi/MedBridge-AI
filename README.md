@@ -1,8 +1,8 @@
 # MedBridge AI 🏥
 
-> **A Secure, Multi-Agent Health Concierge — Powered by Google Gemini, MCP, and spaCy NLP**
+> **A Secure, Multi-Agent Health Concierge — Powered by Google Gemini, MCP, spaCy NLP, and OpenFDA Visual Telemetry**
 
-**Kaggle AI Agents Intensive Course — Capstone Project**  
+**Kaggle AI Agents Intensive Course — Capstone Project (Google Capstone Upgrades)**  
 **Track:** Agents for Good  
 **GitHub Repository:** [deveshpunjabi/MedBridge-AI](https://github.com/deveshpunjabi/MedBridge-AI)
 
@@ -11,13 +11,12 @@
 ## 🎯 Overview
 
 **MedBridge AI** is a locally-deployable, security-first multi-agent system designed to act as a personal health concierge. It processes messy, free-text medical queries (such as clinical notes, medication schedules, or symptom logs) and securely processes them through a pipeline that:
-1. **Redacts PII/PHI locally** using spaCy NLP before any data is sent to external API endpoints.
-2. **Classifies user intent** using a Gemini-powered Router Agent with a strict schema JSON constraint.
-3. **Performs drug-drug interaction checks** via a Medical Specialist Agent querying the live OpenFDA API through standard Model Context Protocol (MCP) tools.
-4. **Grounds public health inquiries** using native Google Search grounding to retrieve real-time data complete with citations.
-5. **Schedules medication reminders** via a Scheduler Specialist Agent that interfaces with a calendar tool over MCP.
+1. 🔒 **Local PII/PHI Tokenization & Re-hydration Loop**: Instead of destructive redaction, we implement an Anonymization Tokenizer. Patient names, clinic names, and locations are replaced with index tokens (e.g., `[PERSON_0]`, `[GPE_1]`) *before* queries leave the user's machine. The final specialist response is intercept-rehydrated to display real patient names, keeping LLM transmission entirely anonymous while preserving clinic personalization.
+2. 🧠 **Zero-PII Persistent Memory System**: Gives agents multi-turn context memory (allowing follow-up questions like *"How about Warfarin?"* followed by *"Remind me to take it at 10am"*). It maintains HIPAA/GDPR compliance by storing *only* tokenized prompts and responses in the local database.
+3. 🌐 **Hybrid Outbreak Grounding**: The Medical Specialist Agent queries verified clinic guidelines locally (RAG) and utilizes Gemini's native Google Search Grounding for dynamic public health outbreaks, merging private document retrieval with live web citations.
+4. 📊 **OpenFDA Adverse Event Telemetry Charts**: Intercepts OpenFDA API signals to render dynamic, color-coded adverse event progress charts in the Web GUI dashboard. High-frequency interaction reports are visually highlighted.
 
-All orchestration is wrapped in a production-grade Click CLI supporting both live model execution and a fully offline-safe mock mode (`--mock`).
+All orchestration is wrapped in a production-grade Click CLI supporting both live execution, an interactive console loop, memory purging commands, and a gorgeous glassmorphic local Web GUI (`med-ai gui`).
 
 ---
 
@@ -28,14 +27,19 @@ The following Mermaid diagram shows the pipeline flow from raw user input to spe
 ```mermaid
 graph TD
     %% User input entry point
-    Input["User Input (CLI / File / Query String)"]
+    Input["User Input (CLI / Web GUI)"]
     
     %% Security & Redaction Pipeline
     subgraph Privacy_Boundary ["🔒 Local Privacy Sandbox (Pre-LLM)"]
         direction TB
-        Redactor["PII Redactor Middleware (spaCy NER)"]
+        Tokenizer["PII Tokenizer Middleware (spaCy NER)"]
+        TokenMap["Session Token Map Mapping Store"]
+        MemoryLoader["Zero-PII Memory Loader"]
         Whitelist["Drug Name Whitelist Matcher"]
-        Redactor --> Whitelist
+        
+        Tokenizer --> Whitelist
+        Tokenizer -->|Save Maps| TokenMap
+        MemoryLoader -->|History Context| Tokenizer
     end
     
     %% Multi-Agent Router & Execution
@@ -58,10 +62,14 @@ graph TD
             MCPSubprocess --> MockCalendar
         end
     end
+
+    %% Rehydration and Display
+    Rehydration["Re-hydration Interceptor Loop"]
+    Display["Display Output (CLI / Web GUI Chart / Chat)"]
     
     %% Flow Connections
     Input --> Privacy_Boundary
-    Privacy_Boundary -->|Sanitized Prompt| Router
+    Privacy_Boundary -->|Tokenized Prompt with History Context| Router
     
     Router -->|MEDICAL / BOTH| MedicalAgent
     Router -->|SCHEDULER / BOTH| SchedulerAgent
@@ -71,35 +79,46 @@ graph TD
     MedicalAgent -->|Interact / Tool Call| MCPSubprocess
     SchedulerAgent -->|Schedule / Tool Call| MCPSubprocess
     
+    MedicalAgent -->|Sanitized Output| Rehydration
+    SchedulerAgent -->|Sanitized Output| Rehydration
+    TokenMap -->|Inject Original Names| Rehydration
+    Rehydration -->|Rehydrated Response + FDA Chart JSON| Display
+    
     %% Styling
     style Privacy_Boundary fill:#ffe6e6,stroke:#ff6666,stroke-width:2px;
     style Multi_Agent_Orchestrator fill:#e6f2ff,stroke:#3399ff,stroke-width:2px;
     style External_Services fill:#f2ffe6,stroke:#99e633,stroke-width:2px;
+    style Rehydration fill:#fff0e6,stroke:#ff9933,stroke-width:2px;
 ```
 
 ---
 
-## 🔒 Local Privacy Sandbox & PII Redaction
+## 🔒 Local Privacy Sandbox & PII Tokenization Loop
 
-To comply with patient privacy principles, MedBridge AI redacts sensitive personal identifiers *locally* before transmitting any user query to the LLM backend.
+To comply with patient privacy principles, MedBridge AI tokenizes sensitive personal identifiers *locally* before transmitting any user query to the LLM backend.
 
 ### 1. spaCy Named Entity Recognition (NER) vs Regex
 * **Brittle Regex Limitations**: Simple regular expressions are poor at identifying names and locations, often confusing normal nouns/verbs with names.
 * **Context-Aware NER**: The system uses spaCy's `en_core_web_sm` model, which analyzes grammatical structure to accurately detect:
-  * `PERSON` &rarr; `[REDACTED_PERSON]` (e.g., patient, doctor names)
-  * `GPE` &rarr; `[REDACTED_LOCATION]` (e.g., cities, states, physical addresses)
-  * `ORG` &rarr; `[REDACTED_ORG]` (e.g., hospital, clinic names)
+  * `PERSON` &rarr; `[PERSON_0]` (e.g., patient, doctor names)
+  * `GPE` &rarr; `[GPE_0]` (e.g., cities, states, physical addresses)
+  * `ORG` &rarr; `[ORG_0]` (e.g., hospital, clinic names)
 
-### 2. Drug Name Whitelisting
+### 2. The Re-hydration Interceptor Loop
+When the user inputs clinical notes, a session token map is created. The tokenized prompt goes to Gemini, which replies referencing `[PERSON_0]` and `[PERSON_1]`. Upon return, the local interceptor replaces the tokens with the original values. The user sees their actual details, but external LLM servers and logs only ever see anonymous placeholder tokens.
+
+### 3. Drug Name Whitelisting
 spaCy's general-purpose model occasionally misclassifies medications (like *Aspirin* or *Lisinopril*) as `PERSON` entities. If these were redacted, downstream medical agents could not perform interaction checks. 
 * **The Solution**: We implement a custom medical whitelist containing common drug names. Whitelisted terms are bypassed and preserved, ensuring critical medical context remains intact.
 
-### 3. Case-Sensitive Mock Pattern Redactor
-For the offline mock pipeline (`--mock`), the local PII redactor applies a case-sensitive regular expression matching only capitalized words following identifiers like `"I am"` or `"my name is"`. This prevents the system from redacting common lowercase verbs (e.g., `"taking"`) or common nouns that happen to be followed by capitalized drugs:
-* **Input**: `"I am taking Aspirin."`
-* **Output**: `"I am taking Aspirin."` *(Verb 'taking' and drug 'Aspirin' are preserved)*
-* **Input**: `"I am John Doe."`
-* **Output**: `"I am [REDACTED_PERSON]."` *(Capitalized name redacted)*
+---
+
+## 🧠 Zero-PII Persistent Memory System
+
+To allow follow-up questions, the CLI coordinator [main.py](file:///D:/Hackathon/5%20days%20Ai%20agents%20-%20kaggle/medbridge-ai/main.py) maintains a persistent conversation memory in `conversation_memory.json`.
+* **The HIPAA/GDPR Problem**: Saving raw history logs locally violates patient confidentiality by accumulating unencrypted PII.
+* **The Solution**: MedBridge AI only logs the **sanitized inputs** (containing tokens like `[PERSON_0]`) and the agent's raw responses. During subsequent turns, this sanitized history is loaded and prepended to the user query as system context, ensuring the agents track conversation state without ever storing PII on disk.
+* **Purge Commands**: Users can clear history at any time using the `med-ai clear` CLI command or the **Clear Memory** button in the Web GUI dashboard.
 
 ---
 
@@ -135,9 +154,9 @@ MedBridge AI implements the Model Context Protocol (MCP) to decouple tool defini
 | :--- | :--- | :--- |
 | **ADK / Agent Pattern** | Multi-agent architecture (Router + Medical Specialist + Scheduler Specialist) with structured JSON routing and safety-first sequential execution. | [router_agent.py](file:///D:/Hackathon/5%20days%20Ai%20agents%20-%20kaggle/medbridge-ai/agents/router_agent.py) |
 | **MCP Server** | A standard-compliant Model Context Protocol server built with `FastMCP` running over stdio as a subprocess. Exposes live FDA API tool call and calendar tool call. | [server.py](file:///D:/Hackathon/5%20days%20Ai%20agents%20-%20kaggle/medbridge-ai/mcp_server/server.py) |
-| **Security Features** | local spaCy NER PHI/PII redaction preceding LLM routing, medication whitelist protection, and secure API key loading from `.env`. | [pii_redactor.py](file:///D:/Hackathon/5%20days%20Ai%20agents%20-%20kaggle/medbridge-ai/security/pii_redactor.py) |
+| **Security Features** | Local spaCy NER PHI/PII **Tokenization & Re-hydration Loop** preventing external PII flight, whitelists, and secure `.env` configuration. | [pii_redactor.py](file:///D:/Hackathon/5%20days%20Ai%20agents%20-%20kaggle/medbridge-ai/security/pii_redactor.py) |
 | **Grounding** | Medical agent leverages native Gemini Google Search grounding to retrieve live disease outbreaks and public health advisories with citations. | [medical_agent.py](file:///D:/Hackathon/5%20days%20Ai%20agents%20-%20kaggle/medbridge-ai/agents/medical_agent.py) |
-| **CLI Deployability** | Command-line interface built with Click, featuring query strings, file parsing, console encoding fixes, and an offline-safe `--mock` mode. | [main.py](file:///D:/Hackathon/5%20days%20Ai%20agents%20-%20kaggle/medbridge-ai/main.py) |
+| **CLI Deployability** | CLI built with Click, featuring direct query, interactive console loops, persistent memory clearing (`med-ai clear`), and offline `--mock` mode. | [main.py](file:///D:/Hackathon/5%20days%20Ai%20agents%20-%20kaggle/medbridge-ai/main.py) |
 | **Code Quality** | Consistent PEP-compliant type hints, comprehensive error handlers, clear separation of concerns, and clean logging. | Entire repository |
 
 ---
@@ -175,92 +194,53 @@ GEMINI_API_KEY=your_google_gemini_api_key_here
 
 ## 🛠️ Verification & Demo Commands
 
-### 1. Launch the Interactive Console
+### 1. Launch the Interactive Web GUI Dashboard
+Start the zero-dependency local HTTP server. It will automatically launch your default browser:
+```bash
+med-ai gui
+```
+
+### 2. Launch the Interactive CLI Console
 You can launch the program in interactive mode by running the command with no arguments:
 ```bash
 med-ai
 ```
 
-### 2. Run Pipeline in Mock Mode (No API Key Required)
-Run a query directly from the terminal (the CLI automatically routes raw queries directly to the `query` command):
+### 3. Run Pipeline in Mock Mode (No API Key Required)
+Run a query directly from the terminal:
 ```bash
-med-ai --mock "I am taking Aspirin and Warfarin. Remind me to check with Dr. Jones next Monday at 10am."
+med-ai --mock "I am Alice. Check drug interactions between Aspirin and Warfarin. Call Dr. Bob next Monday."
 ```
 
 #### Expected Output logs:
 ```text
-╔═══════════════════════════════════════════════════════════════════╗
-║                                                                   ║
-║   ███╗   ███╗███████╗██████╗ ██████╗ ██████╗ ██╗██████╗  ██████╗ ║
-║   ████╗ ████║██╔════╝██╔══██╗██╔══██╗██╔══██╗██║██╔══██╗██╔════╝ ║
-║   ██╔████╔██║█████╗  ██║  ██║██████╔╝██████╔╝██║██║  ██║██║  ███╗║
-║   ██║╚██╔╝██║██╔══╝  ██║  ██║██╔══██╗██╔══██╗██║██║  ██║██║   ██║║
-║   ██║ ╚═╝ ██║███████╗██████╔╝██████╔╝██║  ██║██║██████╔╝╚██████╔╝║
-║   ╚═╝     ╚═╝╚══════╝╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝╚═════╝  ╚═════╝║
-║                          A I                                      ║
-║                                                                   ║
-║   🏥 Your Secure Health Concierge — Powered by Multi-Agent AI     ║
-║                                                                   ║
-╚═══════════════════════════════════════════════════════════════════╝
-
-  Mode: 🧪 MOCK MODE
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📝 Input received:
-   I am taking Aspirin and Warfarin. Remind me to check with Dr. Jones next Monday at 10am.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🔒 [Security] Applying PII redaction...
-   ✓ PII detected and redacted
+🔒 [Security] Applying PII tokenization...
+   ✓ PII detected and tokenized
 
 🔀 [Router] Classifying intent...
    ✓ Intent: 💊📅 BOTH
 
 💊 [Medical Agent] Processing...
-
 ──────────────────────────────────────────────────
-💊 Medical Agent Response:
+💊 Medical Agent Response (Rehydrated):
 💊 **Drug Interaction Check** (Mock Mode)
-
 Medications analyzed: Aspirin, Warfarin
-
 ⚠️ **Potential Interaction Found:**
 The combination of Aspirin and Warfarin has been associated with adverse event reports in the FDA database.
 
-**Recommendations:**
-• Consult your doctor before combining these medications
-• Monitor for unusual symptoms
-• Do not stop any medication without medical guidance
-
-⚕️ Please consult a healthcare professional for personalized medical advice.
-
 📅 [Scheduler Agent] Processing...
-
 ──────────────────────────────────────────────────
-📅 Scheduler Agent Response:
-📅 **Scheduling Confirmation** (Mock Mode)
-
+📅 Scheduler Agent Response (Rehydrated):
 ✅ Calendar event created successfully!
-
-   📌 **Event:** Check with dr
-   📅 **When:** Monday at 10am
-   🔔 **Reminder:** 30 minutes before
-
-Your reminder has been set. I'll make sure you don't forget!
-
-============================================================
-MedBridge AI processing complete.
+   📌 Event: Check drug interactions between aspirin and warfar
+   📅 When: Monday at 9:00 AM
 ```
 
-### 3. Run live queries (Requires API Key)
-* **Check Drug Interactions via Live MCP FDA Tools**:
-  ```bash
-  med-ai "Are there any interactions between Metformin and Contrast Dye?"
-  ```
-* **Query Outbreaks via Gemini Google Search Grounding**:
-  ```bash
-  med-ai "What is the latest update on the seasonal influenza outbreak in New York?"
-  ```
+### 4. Clear Conversation History
+Purge the local Zero-PII memory:
+```bash
+med-ai clear
+```
 
 ---
 
@@ -271,16 +251,18 @@ MedBridge AI processing complete.
   * 📄 [medical_agent.py](file:///D:/Hackathon/5%20days%20Ai%20agents%20-%20kaggle/medbridge-ai/agents/medical_agent.py): Live OpenFDA calling and Google Search Grounding.
   * 📄 [scheduler_agent.py](file:///D:/Hackathon/5%20days%20Ai%20agents%20-%20kaggle/medbridge-ai/agents/scheduler_agent.py): Appointment extraction and calendar event builder.
 * 📂 [security/](file:///D:/Hackathon/5%20days%20Ai%20agents%20-%20kaggle/medbridge-ai/security): Safety middleware.
-  * 📄 [pii_redactor.py](file:///D:/Hackathon/5%20days%20Ai%20agents%20-%20kaggle/medbridge-ai/security/pii_redactor.py): Local PII/PHI redaction utilizing spaCy NER and drug whitelists.
+  * 📄 [pii_redactor.py](file:///D:/Hackathon/5%20days%20Ai%20agents%20-%20kaggle/medbridge-ai/security/pii_redactor.py): Local PII/PHI tokenization utilizing spaCy NER and drug whitelists.
 * 📂 [mcp_server/](file:///D:/Hackathon/5%20days%20Ai%20agents%20-%20kaggle/medbridge-ai/mcp_server): Stdio-based tool servers.
   * 📄 [server.py](file:///D:/Hackathon/5%20days%20Ai%20agents%20-%20kaggle/medbridge-ai/mcp_server/server.py): FastMCP API implementation for FDA API calls and calendar scheduling.
-* 📄 [main.py](file:///D:/Hackathon/5%20days%20Ai%20agents%20-%20kaggle/medbridge-ai/main.py): CLI orchestrator, Click setup, and environment verification.
+* 📂 [gui/](file:///D:/Hackathon/5%20days%20Ai%20agents%20-%20kaggle/medbridge-ai/gui): User Interface.
+  * 📄 [index.html](file:///D:/Hackathon/5%20days%20Ai%20agents%20-%20kaggle/medbridge-ai/gui/index.html): Glassmorphic visual telemetry dashboard.
+* 📄 [main.py](file:///D:/Hackathon/5%20days%20Ai%20agents%20-%20kaggle/medbridge-ai/main.py): CLI orchestrator, Click setup, HTTP server, and environment verification.
 * 📄 [config.py](file:///D:/Hackathon/5%20days%20Ai%20agents%20-%20kaggle/medbridge-ai/config.py): App configurations, model definition, and environment loading.
 
 ---
 
 ## 🔧 Troubleshooting
 
-* **Unicode/Encoding Errors**: If your terminal crashes displaying ASCII characters or emojis, verify that you are running Python 3.7+ and that your Windows terminal is configured for UTF-8 (`chcp 65001`). The code handles standard console encoding overrides, but extreme Windows legacy shell versions might still fail.
+* **Unicode/Encoding Errors**: If your terminal crashes displaying ASCII characters or emojis, verify that you are running Python 3.7+ and that your Windows terminal is configured for UTF-8 (`chcp 65001`). 
 * **spaCy Model Missing Error**: If you see `OSError: [E050] Can't find model 'en_core_web_sm'`, run `python -m spacy download en_core_web_sm` and verify your path references.
 * **OpenFDA API Rate Limiting**: The OpenFDA API is public and does not require keys, but excessive queries in live mode can cause transient HTTP `429` rate limiting. MedBridge AI will print a warning and gracefully degrade to standard guidance if this occurs.

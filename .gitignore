@@ -24,3 +24,6 @@ dist/
 .DS_Store
 Thumbs.db
 *.log
+
+# Conversation Memory History logs
+conversation_memory.json

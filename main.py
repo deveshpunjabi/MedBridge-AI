@@ -175,6 +175,127 @@ def query(
 
 
 # =============================================================================
+# Helper Utilities & Memory Management (Google Capstone Project Upgrades)
+# =============================================================================
+
+MEMORY_FILE = "conversation_memory.json"
+
+def rehydrate_text(text: str, token_map: dict[str, str]) -> str:
+    """
+    Replaces PII tokens with their original values.
+    """
+    if not text or not token_map:
+        return text
+    rehydrated = text
+    for token, original in token_map.items():
+        rehydrated = rehydrated.replace(token, original)
+    return rehydrated
+
+
+def load_memory() -> list[dict]:
+    import os
+    import json
+    if os.path.exists(MEMORY_FILE):
+        try:
+            with open(MEMORY_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return []
+    return []
+
+
+def save_memory(history: list[dict]) -> None:
+    import json
+    try:
+        with open(MEMORY_FILE, "w", encoding="utf-8") as f:
+            json.dump(history, f, indent=2)
+    except Exception:
+        pass
+
+
+def clear_memory() -> None:
+    import os
+    if os.path.exists(MEMORY_FILE):
+        try:
+            os.remove(MEMORY_FILE)
+        except Exception:
+            pass
+
+
+def build_history_context(history: list[dict]) -> str:
+    if not history:
+        return ""
+    context = "\n--- Recent Conversation History (PII Sanitized) ---\n"
+    for turn in history:
+        context += f"User: {turn.get('user_sanitized', '')}\n"
+        if turn.get("medical_response"):
+            context += f"Medical Agent: {turn.get('medical_response', '')}\n"
+        if turn.get("scheduler_response"):
+            context += f"Scheduler Agent: {turn.get('scheduler_response', '')}\n"
+    context += "---------------------------------------------------\n"
+    return context
+
+
+def fetch_fda_chart_data(sanitized_text: str, mock: bool = False) -> list:
+    """
+    Retrieves adverse reaction report counts to generate charts in the GUI.
+    """
+    if mock:
+        text_lower = sanitized_text.lower()
+        if "aspirin" in text_lower and "warfarin" in text_lower:
+            return [
+                {"reaction": "Hemorrhage (Bleeding)", "percentage": 88},
+                {"reaction": "Hematoma (Bruising)", "percentage": 65},
+                {"reaction": "Epistaxis (Nosebleed)", "percentage": 42},
+                {"reaction": "Nausea", "percentage": 30},
+                {"reaction": "Dizziness", "percentage": 15},
+            ]
+        elif "metformin" in text_lower and "contrast" in text_lower:
+            return [
+                {"reaction": "Lactic Acidosis", "percentage": 75},
+                {"reaction": "Renal Failure", "percentage": 58},
+                {"reaction": "Nausea & Vomiting", "percentage": 48},
+                {"reaction": "Diarrhea", "percentage": 35},
+                {"reaction": "Abdominal Pain", "percentage": 22},
+            ]
+        else:
+            return [
+                {"reaction": "Nausea", "percentage": 45},
+                {"reaction": "Headache", "percentage": 35},
+                {"reaction": "Fatigue", "percentage": 20},
+            ]
+    else:
+        from security.pii_redactor import DRUG_WHITELIST
+        detected_drugs = []
+        for drug in DRUG_WHITELIST:
+            if f" {drug} " in f" {sanitized_text.lower()} ":
+                detected_drugs.append(drug)
+        
+        if len(detected_drugs) >= 2:
+            import requests
+            base_url = "https://api.fda.gov/drug/event.json"
+            search_terms = "+AND+".join([f'patient.drug.medicinalproduct:"{drug}"' for drug in detected_drugs])
+            params = {"search": search_terms, "limit": 10}
+            try:
+                r = requests.get(base_url, params=params, timeout=5)
+                if r.status_code == 200:
+                    data = r.json()
+                    results = data.get("results", [])
+                    counts = {}
+                    for result in results:
+                        for rx in result.get("patient", {}).get("reaction", []):
+                            desc = rx.get("reactionmeddrapt", "").capitalize()
+                            if desc:
+                                counts[desc] = counts.get(desc, 0) + 1
+                    sorted_reactions = sorted(counts.items(), key=lambda x: x[1], reverse=True)[:5]
+                    if sorted_reactions:
+                        return [{"reaction": rx, "percentage": int((count / len(results)) * 100)} for rx, count in sorted_reactions]
+            except Exception:
+                pass
+        return []
+
+
+# =============================================================================
 # Core Pipeline (Async)
 # =============================================================================
 
@@ -233,29 +354,47 @@ async def _process_query(
     # Step 3: PII Redaction (MANDATORY — runs before ANY LLM call)
     # -----------------------------------------------------------------
     click.echo(click.style("━" * 60, fg="white"))
-    click.echo(click.style("🔒 [Security] Applying PII redaction...", fg="yellow", bold=True))
+    click.echo(click.style("🔒 [Security] Applying PII tokenization...", fg="yellow", bold=True))
 
     if mock:
-        sanitized_text = redact_pii_mock(text, verbose=verbose)
+        sanitized_text, token_map = redact_pii_mock(text, verbose=verbose)
     else:
-        sanitized_text = redact_pii(text, verbose=verbose)
+        sanitized_text, token_map = redact_pii(text, verbose=verbose)
 
     if sanitized_text != text:
-        click.echo(click.style("   ✓ PII detected and redacted", fg="yellow"))
+        click.echo(click.style("   ✓ PII detected and tokenized", fg="yellow"))
         if verbose:
-            click.echo(f"   Sanitized: {sanitized_text}")
+            click.echo(f"   Tokenized: {sanitized_text}")
+            click.echo(f"   Token Map: {token_map}")
     else:
         click.echo(click.style("   ✓ No PII detected in input", fg="yellow"))
+
+    # Load conversation history context
+    history = load_memory()
+    history_context = build_history_context(history)
+    prompt_with_history = history_context + sanitized_text
 
     # -----------------------------------------------------------------
     # Step 4: Route and process via agents
     # -----------------------------------------------------------------
     if mock:
         # In mock mode, skip MCP server — agents use built-in mock responses
-        await _run_agent_pipeline(sanitized_text, mcp_session=None, mock=True, verbose=verbose)
+        await _run_agent_pipeline(
+            prompt_with_history,
+            mcp_session=None,
+            mock=True,
+            verbose=verbose,
+            token_map=token_map,
+            sanitized_query=sanitized_text,
+        )
     else:
         # In real mode, spawn MCP server subprocess and connect
-        await _run_with_mcp_server(sanitized_text, verbose=verbose)
+        await _run_with_mcp_server(
+            prompt_with_history,
+            verbose=verbose,
+            token_map=token_map,
+            sanitized_query=sanitized_text,
+        )
 
     # -----------------------------------------------------------------
     # Step 5: Done
@@ -268,7 +407,12 @@ async def _process_query(
 # MCP Server Lifecycle
 # =============================================================================
 
-async def _run_with_mcp_server(sanitized_text: str, verbose: bool) -> None:
+async def _run_with_mcp_server(
+    sanitized_text: str,
+    verbose: bool,
+    token_map: dict[str, str],
+    sanitized_query: str,
+) -> None:
     """
     Spawn the MCP server subprocess, connect, and run the agent pipeline.
 
@@ -312,6 +456,8 @@ async def _run_with_mcp_server(sanitized_text: str, verbose: bool) -> None:
                     mcp_session=session,
                     mock=False,
                     verbose=verbose,
+                    token_map=token_map,
+                    sanitized_query=sanitized_query,
                 )
 
     except FileNotFoundError:
@@ -324,7 +470,14 @@ async def _run_with_mcp_server(sanitized_text: str, verbose: bool) -> None:
         click.echo(
             click.style("   Falling back to mock mode...", fg="yellow")
         )
-        await _run_agent_pipeline(sanitized_text, mcp_session=None, mock=True, verbose=verbose)
+        await _run_agent_pipeline(
+            sanitized_text,
+            mcp_session=None,
+            mock=True,
+            verbose=verbose,
+            token_map=token_map,
+            sanitized_query=sanitized_query,
+        )
 
     except Exception as e:
         click.echo(
@@ -333,7 +486,14 @@ async def _run_with_mcp_server(sanitized_text: str, verbose: bool) -> None:
         click.echo(
             click.style("   Falling back to mock mode...", fg="yellow")
         )
-        await _run_agent_pipeline(sanitized_text, mcp_session=None, mock=True, verbose=verbose)
+        await _run_agent_pipeline(
+            sanitized_text,
+            mcp_session=None,
+            mock=True,
+            verbose=verbose,
+            token_map=token_map,
+            sanitized_query=sanitized_query,
+        )
 
 
 # =============================================================================
@@ -345,6 +505,8 @@ async def _run_agent_pipeline(
     mcp_session: Optional[object],
     mock: bool,
     verbose: bool,
+    token_map: Optional[dict[str, str]] = None,
+    sanitized_query: Optional[str] = None,
 ) -> None:
     """
     Run the multi-agent pipeline: Router → Specialist Agent(s).
@@ -361,6 +523,8 @@ async def _run_agent_pipeline(
         mcp_session: Active MCP session (None in mock mode).
         mock: Whether to use mock agent responses.
         verbose: Whether to show detailed processing info.
+        token_map: Mapping dictionary of tokens to original PII strings.
+        sanitized_query: The user input before adding history context.
     """
     from agents.router_agent import classify_intent
     from agents.medical_agent import run_medical_agent
@@ -389,14 +553,17 @@ async def _run_agent_pipeline(
     # -----------------------------------------------------------------
     # Step 4b: Dispatch to Specialist Agent(s)
     # -----------------------------------------------------------------
+    medical_result = ""
+    scheduler_result = ""
+
     if intent in ("MEDICAL", "BOTH"):
         click.echo(
             click.style("\n💊 [Medical Agent] Processing...", fg="green", bold=True)
         )
         medical_result = await run_medical_agent(text, mcp_session, mock=mock)
         click.echo(click.style("\n" + "─" * 50, fg="green"))
-        click.echo(click.style("💊 Medical Agent Response:", fg="green", bold=True))
-        click.echo(medical_result)
+        click.echo(click.style("💊 Medical Agent Response (Rehydrated):", fg="green", bold=True))
+        click.echo(rehydrate_text(medical_result, token_map or {}))
 
     if intent in ("SCHEDULER", "BOTH"):
         click.echo(
@@ -404,8 +571,8 @@ async def _run_agent_pipeline(
         )
         scheduler_result = await run_scheduler_agent(text, mcp_session, mock=mock)
         click.echo(click.style("\n" + "─" * 50, fg="blue"))
-        click.echo(click.style("📅 Scheduler Agent Response:", fg="blue", bold=True))
-        click.echo(scheduler_result)
+        click.echo(click.style("📅 Scheduler Agent Response (Rehydrated):", fg="blue", bold=True))
+        click.echo(rehydrate_text(scheduler_result, token_map or {}))
 
     if intent == "UNKNOWN":
         click.echo(
@@ -417,6 +584,16 @@ async def _run_agent_pipeline(
                 fg="white",
             )
         )
+
+    # Save to memory if sanitized_query is provided
+    if sanitized_query:
+        history = load_memory()
+        history.append({
+            "user_sanitized": sanitized_query,
+            "medical_response": medical_result,
+            "scheduler_response": scheduler_result,
+        })
+        save_memory(history)
 
 
 # =============================================================================
@@ -480,30 +657,32 @@ async def _execute_pipeline_for_gui(query_text: str, mock: bool, verbose: bool) 
     """
     Executes the multi-agent pipeline and returns structured JSON for the GUI.
     """
-    # 1. PII Redaction
+    # 1. PII Redaction / Tokenization
     if mock:
-        sanitized_text = redact_pii_mock(query_text, verbose=verbose)
+        sanitized_text, token_map = redact_pii_mock(query_text, verbose=verbose)
     else:
-        sanitized_text = redact_pii(query_text, verbose=verbose)
+        sanitized_text, token_map = redact_pii(query_text, verbose=verbose)
         
-    # 2. Router classification
+    # 2. Memory Context Loading
+    history = load_memory()
+    history_context = build_history_context(history)
+    prompt_with_history = history_context + sanitized_text
+
+    # 3. Router classification
     from agents.router_agent import classify_intent
-    intent = await classify_intent(sanitized_text, mock=mock)
+    intent = await classify_intent(prompt_with_history, mock=mock)
     
-    # 3. Specialist Execution
+    # 4. Specialist Execution
     medical_resp = ""
     scheduler_resp = ""
     
     if mock:
         from agents.medical_agent import run_medical_agent
         from agents.scheduler_agent import run_scheduler_agent
-        if intent == "MEDICAL":
-            medical_resp = await run_medical_agent(sanitized_text, mcp_session=None, mock=True)
-        elif intent == "SCHEDULER":
-            scheduler_resp = await run_scheduler_agent(sanitized_text, mcp_session=None, mock=True)
-        elif intent == "BOTH":
-            medical_resp = await run_medical_agent(sanitized_text, mcp_session=None, mock=True)
-            scheduler_resp = await run_scheduler_agent(sanitized_text, mcp_session=None, mock=True)
+        if intent in ("MEDICAL", "BOTH"):
+            medical_resp = await run_medical_agent(prompt_with_history, mcp_session=None, mock=True)
+        if intent in ("SCHEDULER", "BOTH"):
+            scheduler_resp = await run_scheduler_agent(prompt_with_history, mcp_session=None, mock=True)
     else:
         from mcp import ClientSession, StdioServerParameters
         from mcp.client.stdio import stdio_client
@@ -521,23 +700,38 @@ async def _execute_pipeline_for_gui(query_text: str, mock: bool, verbose: bool) 
                     from agents.medical_agent import run_medical_agent
                     from agents.scheduler_agent import run_scheduler_agent
                     
-                    if intent == "MEDICAL":
-                        medical_resp = await run_medical_agent(sanitized_text, mcp_session=session, mock=False)
-                    elif intent == "SCHEDULER":
-                        scheduler_resp = await run_scheduler_agent(sanitized_text, mcp_session=session, mock=False)
-                    elif intent == "BOTH":
-                        # Safety sequence: Medical check first
-                        medical_resp = await run_medical_agent(sanitized_text, mcp_session=session, mock=False)
-                        scheduler_resp = await run_scheduler_agent(sanitized_text, mcp_session=session, mock=False)
+                    if intent in ("MEDICAL", "BOTH"):
+                        medical_resp = await run_medical_agent(prompt_with_history, mcp_session=session, mock=False)
+                    if intent in ("SCHEDULER", "BOTH"):
+                        scheduler_resp = await run_scheduler_agent(prompt_with_history, mcp_session=session, mock=False)
         except Exception as e:
             medical_resp = f"❌ Error executing live agent pipeline: {e}"
-            
+
+    # 5. Save the turn to local Zero-PII memory (store sanitized input and raw outputs containing tokens)
+    history.append({
+        "user_sanitized": sanitized_text,
+        "medical_response": medical_resp,
+        "scheduler_response": scheduler_resp,
+    })
+    save_memory(history)
+
+    # 6. Fetch OpenFDA Telemetry risk data
+    fda_chart_data = fetch_fda_chart_data(sanitized_text, mock=mock)
+    
+    # 7. Rehydrate response strings for front-end presentation
+    medical_resp_rehydrated = rehydrate_text(medical_resp, token_map)
+    scheduler_resp_rehydrated = rehydrate_text(scheduler_resp, token_map)
+
     return {
         "raw_input": query_text,
         "sanitized_input": sanitized_text,
+        "token_map": token_map,
         "intent": intent,
         "medical_response": medical_resp,
+        "medical_response_rehydrated": medical_resp_rehydrated,
         "scheduler_response": scheduler_resp,
+        "scheduler_response_rehydrated": scheduler_resp_rehydrated,
+        "fda_chart_data": fda_chart_data,
     }
 
 
@@ -600,6 +794,18 @@ class GUIHTTPRequestHandler(BaseHTTPRequestHandler):
                 self.send_header("Content-type", "application/json")
                 self.end_headers()
                 self.wfile.write(json.dumps({"error": str(e)}).encode('utf-8'))
+        elif self.path == "/api/clear":
+            try:
+                clear_memory()
+                self.send_response(200)
+                self.send_header("Content-type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "success", "message": "Memory cleared"}).encode('utf-8'))
+            except Exception as e:
+                self.send_response(500)
+                self.send_header("Content-type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": str(e)}).encode('utf-8'))
         else:
             self.send_error(404, "API Endpoint Not Found")
 
@@ -631,8 +837,17 @@ def _run_gui_server(port: int) -> None:
 
 
 # =============================================================================
-# Click GUI Command
+# Click GUI & Utility Commands
 # =============================================================================
+
+@cli.command()
+def clear() -> None:
+    """
+    Clear the persistent conversation memory.
+    """
+    clear_memory()
+    click.echo(click.style("🧹 Conversation memory cleared.", fg="green", bold=True))
+
 
 @cli.command()
 @click.option(

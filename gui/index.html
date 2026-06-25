@@ -575,6 +575,10 @@
                     <span class="slider"></span>
                 </label>
             </div>
+
+            <button id="clear-memory-btn" style="background: rgba(244, 63, 94, 0.15); border: 1px solid rgba(244, 63, 94, 0.3); color: var(--accent-rose); padding: 0.3rem 0.8rem; border-radius: 6px; font-size: 0.8rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">
+                🧹 Clear Memory
+            </button>
         </div>
     </header>
 
@@ -629,6 +633,24 @@
         const inspectorBox = document.getElementById("inspector-box");
         const chatPlaceholder = document.getElementById("chat-placeholder");
         const inspectorPlaceholder = document.getElementById("inspector-placeholder");
+        const clearMemoryBtn = document.getElementById("clear-memory-btn");
+
+        if (clearMemoryBtn) {
+            clearMemoryBtn.addEventListener("click", async () => {
+                if (confirm("Are you sure you want to clear the conversation memory?")) {
+                    try {
+                        const response = await fetch("/api/clear", { method: "POST" });
+                        if (response.ok) {
+                            alert("Memory cleared successfully!");
+                        } else {
+                            alert("Failed to clear memory.");
+                        }
+                    } catch (err) {
+                        alert("Error clearing memory: " + err.message);
+                    }
+                }
+            });
+        }
 
         queryInput.addEventListener("keypress", (e) => {
             if (e.key === "Enter" && !sendBtn.disabled && queryInput.value.trim() !== "") {
@@ -677,7 +699,8 @@
             return text
                 .replace(/(\[REDACTED_PERSON\])/g, '<span class="redacted-placeholder">$1</span>')
                 .replace(/(\[REDACTED_LOCATION\])/g, '<span class="redacted-placeholder">$1</span>')
-                .replace(/(\[REDACTED_ORG\])/g, '<span class="redacted-placeholder">$1</span>');
+                .replace(/(\[REDACTED_ORG\])/g, '<span class="redacted-placeholder">$1</span>')
+                .replace(/(\[[A-Z]+_\d+\])/g, '<span class="redacted-placeholder">$1</span>');
         }
 
         async function submitQuery() {
@@ -727,13 +750,13 @@
                 if (result.error) {
                     appendMessage(`❌ Error: ${result.error}`, "bot");
                 } else {
-                    // Assemble bot responses nicely
+                    // Assemble bot responses nicely using rehydrated text for the user
                     let finalResponse = "";
-                    if (result.medical_response) {
-                        finalResponse += `### 💊 Medical Specialist Guidance\n${result.medical_response}\n\n`;
+                    if (result.medical_response_rehydrated) {
+                        finalResponse += `### 💊 Medical Specialist Guidance\n${result.medical_response_rehydrated}\n\n`;
                     }
-                    if (result.scheduler_response) {
-                        finalResponse += `### 📅 Scheduler Appointment Confirmation\n${result.scheduler_response}`;
+                    if (result.scheduler_response_rehydrated) {
+                        finalResponse += `### 📅 Scheduler Appointment Confirmation\n${result.scheduler_response_rehydrated}`;
                     }
                     
                     if (!finalResponse) {
@@ -830,20 +853,84 @@
             const raw = result.raw_input;
             const sanitized = result.sanitized_input;
             
+            // Build token map HTML table
+            let tokenMapHtml = "";
+            if (result.token_map && Object.keys(result.token_map).length > 0) {
+                tokenMapHtml = `
+                <div style="margin-top: 0.8rem; border-top: 1px solid var(--border-color); padding-top: 0.6rem;">
+                    <div class="text-box-label">Local Token Mappings (Never Sent to LLM)</div>
+                    <table style="width: 100%; border-collapse: collapse; font-size: 0.8rem; text-align: left;">
+                        <thead>
+                            <tr style="border-bottom: 1px solid rgba(255,255,255,0.05); color: var(--text-muted);">
+                                <th style="padding: 0.2rem 0.5rem;">Token</th>
+                                <th style="padding: 0.2rem 0.5rem;">Original Value</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${Object.entries(result.token_map).map(([tok, val]) => `
+                                <tr style="border-bottom: 1px dashed rgba(255,255,255,0.03);">
+                                    <td style="padding: 0.2rem 0.5rem; font-weight: bold; color: var(--accent-amber);">${escapeHtml(tok)}</td>
+                                    <td style="padding: 0.2rem 0.5rem; color: var(--text-main); font-style: italic;">${escapeHtml(val)}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+                `;
+            } else {
+                tokenMapHtml = `
+                <div style="margin-top: 0.6rem; font-size: 0.75rem; color: var(--text-muted); font-style: italic;">
+                    No PII entities detected or tokenized.
+                </div>
+                `;
+            }
+
+            // Build OpenFDA chart HTML
+            let chartHtml = "";
+            if (result.fda_chart_data && result.fda_chart_data.length > 0) {
+                chartHtml = `
+                <div class="inspector-card">
+                    <div class="card-title">📊 OpenFDA Adverse Events Telemetry</div>
+                    <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.6rem;">
+                        Relative reporting frequency of adverse events for the co-administered drug combination.
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 0.6rem;">
+                        ${result.fda_chart_data.map(item => {
+                            let barColor = "var(--accent-emerald)";
+                            if (item.percentage >= 70) barColor = "var(--accent-rose)";
+                            else if (item.percentage >= 40) barColor = "var(--accent-amber)";
+                            return `
+                            <div>
+                                <div style="display: flex; justify-content: space-between; font-size: 0.75rem; margin-bottom: 0.2rem;">
+                                    <span style="font-weight: 500; color: var(--text-main);">${escapeHtml(item.reaction)}</span>
+                                    <span style="font-weight: 600; color: ${barColor};">${item.percentage}%</span>
+                                </div>
+                                <div style="width: 100%; height: 8px; background: rgba(255,255,255,0.05); border-radius: 4px; overflow: hidden; border: 1px solid var(--border-color);">
+                                    <div style="width: ${item.percentage}%; height: 100%; background: ${barColor}; border-radius: 4px; transition: width 1s ease;"></div>
+                                </div>
+                            </div>
+                            `;
+                        }).join('')}
+                    </div>
+                </div>
+                `;
+            }
+
             inspectorBox.innerHTML = `
                 <!-- Step 1: Redaction Box -->
                 <div class="inspector-card">
-                    <div class="card-title">🔒 Local PII/PHI Sandbox Redaction</div>
+                    <div class="card-title">🔒 Local PII/PHI Sandbox Tokenizer</div>
                     <div class="text-comparison">
                         <div>
                             <div class="text-box-label">Raw User Input</div>
-                            <div class="text-box">${raw}</div>
+                            <div class="text-box">${escapeHtml(raw)}</div>
                         </div>
                         <div>
                             <div class="text-box-label">Sanitized Text (Pre-LLM)</div>
                             <div class="text-box">${highlightRedactions(escapeHtml(sanitized))}</div>
                         </div>
                     </div>
+                    ${tokenMapHtml}
                 </div>
 
                 <!-- Step 2: Intent Classification Router -->
@@ -860,25 +947,40 @@
                 <!-- Step 3: Agent Executions -->
                 <div class="inspector-card">
                     <div class="card-title">🤖 Specialist Agent Outputs</div>
-                    <div style="display: flex; flex-direction: column; gap: 0.8rem; font-size: 0.85rem;">
+                    <div style="display: flex; flex-direction: column; gap: 1rem; font-size: 0.85rem;">
                         ${result.medical_response ? `
                         <div>
-                            <span style="color: var(--accent-cyan); font-weight: 600;">💊 Medical Specialist Agent:</span>
-                            <div style="margin-top: 0.4rem; padding-left: 0.6rem; border-left: 2px solid var(--accent-cyan); line-height: 1.4; color: var(--text-muted);">
-                                Checked drug interactions or grounded outbreak stats.
+                            <span style="color: var(--accent-cyan); font-weight: 600;">💊 Medical Specialist Agent (Sanitized Text):</span>
+                            <div style="margin-top: 0.4rem; padding: 0.6rem; background: rgba(0,0,0,0.2); border-left: 2px solid var(--accent-cyan); line-height: 1.4; color: var(--text-muted); font-family: monospace; font-size: 0.8rem; border-radius: 4px;">
+                                ${highlightRedactions(escapeHtml(result.medical_response))}
+                            </div>
+                            <div style="margin-top: 0.5rem; font-size: 0.8rem; color: var(--accent-emerald);">
+                                🔄 Re-hydrated User View (Display Only):
+                                <div style="font-style: italic; color: var(--text-main); margin-top: 0.2rem; padding-left: 0.6rem; border-left: 2px dashed var(--accent-emerald);">
+                                    ${formatMarkdown(result.medical_response_rehydrated)}
+                                </div>
                             </div>
                         </div>
                         ` : ''}
                         ${result.scheduler_response ? `
                         <div>
-                            <span style="color: var(--accent-primary); font-weight: 600;">📅 Scheduler Specialist Agent:</span>
-                            <div style="margin-top: 0.4rem; padding-left: 0.6rem; border-left: 2px solid var(--accent-primary); line-height: 1.4; color: var(--text-muted);">
-                                Executed appointment check / created calendar reminder event.
+                            <span style="color: var(--accent-primary); font-weight: 600;">📅 Scheduler Specialist Agent (Sanitized Text):</span>
+                            <div style="margin-top: 0.4rem; padding: 0.6rem; background: rgba(0,0,0,0.2); border-left: 2px solid var(--accent-primary); line-height: 1.4; color: var(--text-muted); font-family: monospace; font-size: 0.8rem; border-radius: 4px;">
+                                ${highlightRedactions(escapeHtml(result.scheduler_response))}
+                            </div>
+                            <div style="margin-top: 0.5rem; font-size: 0.8rem; color: var(--accent-emerald);">
+                                🔄 Re-hydrated User View (Display Only):
+                                <div style="font-style: italic; color: var(--text-main); margin-top: 0.2rem; padding-left: 0.6rem; border-left: 2px dashed var(--accent-emerald);">
+                                    ${formatMarkdown(result.scheduler_response_rehydrated)}
+                                </div>
                             </div>
                         </div>
                         ` : ''}
                     </div>
                 </div>
+
+                <!-- Step 4: OpenFDA Chart -->
+                ${chartHtml}
 
                 <!-- Complete status step -->
                 <div class="inspector-card" style="border-color: rgba(16, 185, 129, 0.2);">
