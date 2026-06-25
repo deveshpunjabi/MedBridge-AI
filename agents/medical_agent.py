@@ -110,7 +110,7 @@ async def run_medical_agent(
 
         # Step 1: Initial generation call
         response = _generate_with_retry(
-            contents=text,
+            contents=query_to_check,
             config_params=types.GenerateContentConfig(
                 system_instruction=MEDICAL_SYSTEM_PROMPT,
                 tools=tools,
@@ -141,7 +141,7 @@ async def run_medical_agent(
                 try:
                     response = _generate_with_retry(
                         contents=[
-                            types.Content(role="user", parts=[types.Part.from_text(text=text)]),
+                            types.Content(role="user", parts=[types.Part.from_text(text=query_to_check)]),
                             types.Content(role="model", parts=[function_call_part]),
                             types.Content(
                                 role="user",

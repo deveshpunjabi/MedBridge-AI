@@ -91,7 +91,7 @@ async def run_scheduler_agent(
 
         # Step 1: Initial call to calendar tool
         response = _generate_with_retry(
-            contents=text,
+            contents=query_to_check,
             config_params=types.GenerateContentConfig(
                 system_instruction=SCHEDULER_SYSTEM_PROMPT,
                 tools=[calendar_tool],
@@ -124,7 +124,7 @@ async def run_scheduler_agent(
                 try:
                     response = _generate_with_retry(
                         contents=[
-                            types.Content(role="user", parts=[types.Part.from_text(text=text)]),
+                            types.Content(role="user", parts=[types.Part.from_text(text=query_to_check)]),
                             types.Content(role="model", parts=[function_call_part]),
                             types.Content(
                                 role="user",

@@ -73,7 +73,7 @@ async def classify_intent(text: str, mock: bool = False, raw_query: Optional[str
 
             response = client.models.generate_content(
                 model=MODEL_NAME,
-                contents=text,
+                contents=query_to_check,
                 config=types.GenerateContentConfig(
                     system_instruction=ROUTER_SYSTEM_PROMPT,
                     response_mime_type="application/json",
