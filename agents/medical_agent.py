@@ -170,10 +170,23 @@ async def run_medical_agent(
         client = genai.Client(api_key=GEMINI_API_KEY)
 
         # Build the tool configuration.
-        # We provide BOTH the MCP drug interaction tool AND Google Search grounding.
-        # The LLM decides which to use based on the query content.
+        # Google GenAI API does not allow combining built-in tools (google_search) and
+        # function calling (MCP tools) in the same request. We select the appropriate tool
+        # dynamically based on query content.
         mcp_tool = _get_tool_declarations()
         grounding_tool = _get_grounding_tool()
+
+        text_lower = text.lower()
+        from security.pii_redactor import DRUG_WHITELIST
+        has_drugs = any(f" {drug} " in f" {text_lower} " or text_lower.startswith(drug) or text_lower.endswith(drug) for drug in DRUG_WHITELIST)
+        has_drug_keywords = any(kw in text_lower for kw in ["interaction", "side effect", "dosage", "dose", "combine", "medication", "drug"])
+
+        if has_drugs or has_drug_keywords:
+            tools = [mcp_tool]
+            click.echo(click.style("   🩺 [Medical Agent] Drug query detected. Enabling MCP tools.", fg="green"))
+        else:
+            tools = [grounding_tool]
+            click.echo(click.style("   🩺 [Medical Agent] General query detected. Enabling Google Search grounding.", fg="green"))
 
         # -----------------------------------------------------------------
         # Step 1: Initial LLM call with tools available
@@ -183,7 +196,7 @@ async def run_medical_agent(
             contents=text,
             config=types.GenerateContentConfig(
                 system_instruction=MEDICAL_SYSTEM_PROMPT,
-                tools=[mcp_tool, grounding_tool],
+                tools=tools,
             ),
         )
 
