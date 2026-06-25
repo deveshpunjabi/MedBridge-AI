@@ -53,10 +53,12 @@ async def run_medical_agent(
     text: str,
     mcp_session: Optional[object] = None,
     mock: bool = False,
+    raw_query: Optional[str] = None,
 ) -> str:
     """Execute the Medical Agent pipeline."""
+    query_to_check = raw_query if raw_query else text
     if mock:
-        return _mock_medical_response(text)
+        return _mock_medical_response(query_to_check)
 
     try:
         import time
@@ -94,7 +96,7 @@ async def run_medical_agent(
         mcp_tool = _get_tool_declarations()
         grounding_tool = _get_grounding_tool()
 
-        text_lower = text.lower()
+        text_lower = query_to_check.lower()
         from security.pii_redactor import DRUG_WHITELIST
         has_drugs = any(f" {drug} " in f" {text_lower} " or text_lower.startswith(drug) or text_lower.endswith(drug) for drug in DRUG_WHITELIST)
         has_drug_keywords = any(kw in text_lower for kw in ["interaction", "side effect", "dosage", "dose", "combine", "medication", "drug"])

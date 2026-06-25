@@ -49,10 +49,12 @@ async def run_scheduler_agent(
     text: str,
     mcp_session: Optional[object] = None,
     mock: bool = False,
+    raw_query: Optional[str] = None,
 ) -> str:
     """Execute the Scheduler Agent pipeline."""
+    query_to_check = raw_query if raw_query else text
     if mock:
-        return _mock_scheduler_response(text)
+        return _mock_scheduler_response(query_to_check)
 
     try:
         import time

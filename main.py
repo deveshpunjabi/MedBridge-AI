@@ -366,14 +366,14 @@ async def _run_agent_pipeline(
 
     if intent in ("MEDICAL", "BOTH"):
         click.echo(click.style("\n💊 [Medical Agent] Processing...", fg="green", bold=True))
-        medical_result = await run_medical_agent(text, mcp_session, mock=mock)
+        medical_result = await run_medical_agent(text, mcp_session, mock=mock, raw_query=sanitized_query)
         click.echo(click.style("\n" + "─" * 50, fg="green"))
         click.echo(click.style("💊 Medical Agent Response (Rehydrated):", fg="green", bold=True))
         click.echo(rehydrate_text(medical_result, token_map or {}))
 
     if intent in ("SCHEDULER", "BOTH"):
         click.echo(click.style("\n📅 [Scheduler Agent] Processing...", fg="blue", bold=True))
-        scheduler_result = await run_scheduler_agent(text, mcp_session, mock=mock)
+        scheduler_result = await run_scheduler_agent(text, mcp_session, mock=mock, raw_query=sanitized_query)
         click.echo(click.style("\n" + "─" * 50, fg="blue"))
         click.echo(click.style("📅 Scheduler Agent Response (Rehydrated):", fg="blue", bold=True))
         click.echo(rehydrate_text(scheduler_result, token_map or {}))
@@ -482,9 +482,9 @@ async def _execute_pipeline_for_gui(query_text: str, mock: bool, verbose: bool) 
             from agents.medical_agent import run_medical_agent
             from agents.scheduler_agent import run_scheduler_agent
             if intent in ("MEDICAL", "BOTH"):
-                medical_resp = await run_medical_agent(prompt_with_history, mcp_session=None, mock=True)
+                medical_resp = await run_medical_agent(prompt_with_history, mcp_session=None, mock=True, raw_query=sanitized_text)
             if intent in ("SCHEDULER", "BOTH"):
-                scheduler_resp = await run_scheduler_agent(prompt_with_history, mcp_session=None, mock=True)
+                scheduler_resp = await run_scheduler_agent(prompt_with_history, mcp_session=None, mock=True, raw_query=sanitized_text)
         else:
             from mcp import ClientSession, StdioServerParameters
             from mcp.client.stdio import stdio_client
@@ -503,9 +503,9 @@ async def _execute_pipeline_for_gui(query_text: str, mock: bool, verbose: bool) 
                         from agents.scheduler_agent import run_scheduler_agent
                         
                         if intent in ("MEDICAL", "BOTH"):
-                            medical_resp = await run_medical_agent(prompt_with_history, mcp_session=session, mock=False)
+                            medical_resp = await run_medical_agent(prompt_with_history, mcp_session=session, mock=False, raw_query=sanitized_text)
                         if intent in ("SCHEDULER", "BOTH"):
-                            scheduler_resp = await run_scheduler_agent(prompt_with_history, mcp_session=session, mock=False)
+                            scheduler_resp = await run_scheduler_agent(prompt_with_history, mcp_session=session, mock=False, raw_query=sanitized_text)
             except Exception as e:
                 medical_resp = f"❌ Error executing live agent pipeline: {e}"
 
