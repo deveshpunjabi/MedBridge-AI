@@ -31,13 +31,14 @@ Rules:
 3. Greetings or casual chat should be classified as UNKNOWN.
 """
 
-async def classify_intent(text: str, mock: bool = False) -> str:
+async def classify_intent(text: str, mock: bool = False, raw_query: Optional[str] = None) -> str:
     """Classify the user's input into a routing category."""
+    query_to_check = raw_query if raw_query else text
     if mock:
-        return _classify_intent_mock(text)
+        return _classify_intent_mock(query_to_check)
 
     # Local keyword check to bypass API calls for simple queries
-    local_intent = _classify_intent_mock(text)
+    local_intent = _classify_intent_mock(query_to_check)
     if local_intent != "UNKNOWN":
         click.echo(
             click.style(

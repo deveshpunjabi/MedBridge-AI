@@ -356,7 +356,7 @@ async def _run_agent_pipeline(
 
     click.echo(click.style("\n🔀 [Router] Classifying intent...", fg="cyan", bold=True))
 
-    intent = await classify_intent(text, mock=mock)
+    intent = await classify_intent(text, mock=mock, raw_query=sanitized_query)
     intent_emoji = {"MEDICAL": "💊", "SCHEDULER": "📅", "BOTH": "💊📅", "UNKNOWN": "❓"}
     
     click.echo(click.style(f"   ✓ Intent: {intent_emoji.get(intent, '❓')} {intent}", fg="cyan"))
@@ -379,15 +379,30 @@ async def _run_agent_pipeline(
         click.echo(rehydrate_text(scheduler_result, token_map or {}))
 
     if intent == "UNKNOWN":
-        click.echo(
-            click.style(
-                "\n❓ I'm not sure how to help with that. I can assist with:\n"
-                "   • Medical questions & drug interaction checks\n"
-                "   • Scheduling health reminders & appointments\n"
-                "\n   Try rephrasing your query.",
-                fg="white",
+        query_check = sanitized_query if sanitized_query else text
+        text_clean = query_check.lower().strip("?!. ")
+        greetings = {"hi", "hello", "hey", "hola", "greetings", "good morning", "good afternoon", "good evening", "howdy"}
+        if text_clean in greetings or any(text_clean.startswith(g + " ") for g in greetings):
+            click.echo(
+                click.style(
+                    "\n👋 Hello! 🏥 I am MedBridge AI, your secure health concierge.\n"
+                    "I can assist you with:\n"
+                    "   • Checking drug interactions (e.g. 'Can I take aspirin with warfarin?')\n"
+                    "   • Scheduling reminders (e.g. 'Remind me to take my pills tomorrow at 8 AM')\n"
+                    "\nHow can I help you today?",
+                    fg="cyan",
+                )
             )
-        )
+        else:
+            click.echo(
+                click.style(
+                    "\n❓ I'm not sure how to help with that. I can assist with:\n"
+                    "   • Medical questions & drug interaction checks\n"
+                    "   • Scheduling health reminders & appointments\n"
+                    "\n   Try rephrasing your query.",
+                    fg="white",
+                )
+            )
 
     if sanitized_query:
         history = load_memory()
@@ -443,41 +458,56 @@ async def _execute_pipeline_for_gui(query_text: str, mock: bool, verbose: bool) 
     prompt_with_history = history_context + sanitized_text
 
     from agents.router_agent import classify_intent
-    intent = await classify_intent(prompt_with_history, mock=mock)
+    intent = await classify_intent(prompt_with_history, mock=mock, raw_query=sanitized_text)
     
     medical_resp = ""
     scheduler_resp = ""
     
-    if mock:
-        from agents.medical_agent import run_medical_agent
-        from agents.scheduler_agent import run_scheduler_agent
-        if intent in ("MEDICAL", "BOTH"):
-            medical_resp = await run_medical_agent(prompt_with_history, mcp_session=None, mock=True)
-        if intent in ("SCHEDULER", "BOTH"):
-            scheduler_resp = await run_scheduler_agent(prompt_with_history, mcp_session=None, mock=True)
-    else:
-        from mcp import ClientSession, StdioServerParameters
-        from mcp.client.stdio import stdio_client
-        
-        server_params = StdioServerParameters(
-            command=config.PYTHON_EXECUTABLE,
-            args=[config.MCP_SERVER_SCRIPT],
+    # Handle greetings
+    text_clean = sanitized_text.lower().strip("?!. ")
+    greetings = {"hi", "hello", "hey", "hola", "greetings", "good morning", "good afternoon", "good evening", "howdy"}
+    is_greet = text_clean in greetings or any(text_clean.startswith(g + " ") for g in greetings)
+    
+    if is_greet:
+        intent = "UNKNOWN"
+        medical_resp = (
+            "👋 Hello! 🏥 I am MedBridge AI, your secure health concierge.\n\n"
+            "I can assist you with:\n"
+            "• 🩺 **Drug Interaction Checking**: E.g., *'Can I take Aspirin with Warfarin?'*\n"
+            "• 📅 **Appointment & Medication Scheduling**: E.g., *'Remind me to take my Metformin at 8am tomorrow'*\n\n"
+            "How can I assist you today?"
         )
-        
-        try:
-            async with stdio_client(server_params) as (read, write):
-                async with ClientSession(read, write) as session:
-                    await session.initialize()
-                    
-                    from agents.medical_agent import run_medical_agent
-                    from agents.scheduler_agent import run_scheduler_agent
-                    
-                    if intent in ("MEDICAL", "BOTH"):
-                        medical_resp = await run_medical_agent(prompt_with_history, mcp_session=session, mock=False)
-                    if intent in ("SCHEDULER", "BOTH"):
-                        scheduler_resp = await run_scheduler_agent(prompt_with_history, mcp_session=session, mock=False)
-        except Exception as e:
-            medical_resp = f"❌ Error executing live agent pipeline: {e}"
+    else:
+        if mock:
+            from agents.medical_agent import run_medical_agent
+            from agents.scheduler_agent import run_scheduler_agent
+            if intent in ("MEDICAL", "BOTH"):
+                medical_resp = await run_medical_agent(prompt_with_history, mcp_session=None, mock=True)
+            if intent in ("SCHEDULER", "BOTH"):
+                scheduler_resp = await run_scheduler_agent(prompt_with_history, mcp_session=None, mock=True)
+        else:
+            from mcp import ClientSession, StdioServerParameters
+            from mcp.client.stdio import stdio_client
+            
+            server_params = StdioServerParameters(
+                command=config.PYTHON_EXECUTABLE,
+                args=[config.MCP_SERVER_SCRIPT],
+            )
+            
+            try:
+                async with stdio_client(server_params) as (read, write):
+                    async with ClientSession(read, write) as session:
+                        await session.initialize()
+                        
+                        from agents.medical_agent import run_medical_agent
+                        from agents.scheduler_agent import run_scheduler_agent
+                        
+                        if intent in ("MEDICAL", "BOTH"):
+                            medical_resp = await run_medical_agent(prompt_with_history, mcp_session=session, mock=False)
+                        if intent in ("SCHEDULER", "BOTH"):
+                            scheduler_resp = await run_scheduler_agent(prompt_with_history, mcp_session=session, mock=False)
+            except Exception as e:
+                medical_resp = f"❌ Error executing live agent pipeline: {e}"
 
     history.append({
         "user_sanitized": sanitized_text,
