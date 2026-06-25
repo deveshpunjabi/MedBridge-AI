@@ -92,60 +92,80 @@ async def classify_intent(text: str, mock: bool = False) -> str:
     if mock:
         return _classify_intent_mock(text)
 
+    import time
+    from google import genai
+    from google.genai import types
+
     try:
-        from google import genai
-        from google.genai import types
-
         client = genai.Client(api_key=GEMINI_API_KEY)
-
-        # Use JSON mode with a constrained schema to guarantee valid output.
-        # The response_schema ensures Gemini can ONLY return one of our
-        # four valid intent categories.
-        response = client.models.generate_content(
-            model=MODEL_NAME,
-            contents=text,
-            config=types.GenerateContentConfig(
-                system_instruction=ROUTER_SYSTEM_PROMPT,
-                response_mime_type="application/json",
-                response_schema={
-                    "type": "OBJECT",
-                    "properties": {
-                        "intent": {
-                            "type": "STRING",
-                            "enum": ["MEDICAL", "SCHEDULER", "BOTH", "UNKNOWN"],
-                        }
-                    },
-                    "required": ["intent"],
-                },
-            ),
-        )
-
-        # Parse the structured JSON response
-        result = json.loads(response.text)
-        intent = result.get("intent", "UNKNOWN")
-
-        # Defensive validation — should never trigger with schema constraints,
-        # but we validate anyway (defense in depth).
-        valid_intents = {"MEDICAL", "SCHEDULER", "BOTH", "UNKNOWN"}
-        if intent not in valid_intents:
-            click.echo(
-                click.style(
-                    f"   ⚠️ Router returned unexpected intent '{intent}', defaulting to MEDICAL",
-                    fg="yellow",
-                )
-            )
-            intent = "MEDICAL"  # Safe default — medical queries get more careful handling
-
-        return intent
-
     except Exception as e:
-        click.echo(
-            click.style(f"   ⚠️ Router Agent error: {e}", fg="red")
-        )
-        click.echo(
-            click.style("   Defaulting to MEDICAL for safety.", fg="yellow")
-        )
+        click.echo(click.style(f"   ⚠️ Client initialization error: {e}", fg="red"))
         return "MEDICAL"
+
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            # Use JSON mode with a constrained schema to guarantee valid output.
+            # The response_schema ensures Gemini can ONLY return one of our
+            # four valid intent categories.
+            response = client.models.generate_content(
+                model=MODEL_NAME,
+                contents=text,
+                config=types.GenerateContentConfig(
+                    system_instruction=ROUTER_SYSTEM_PROMPT,
+                    response_mime_type="application/json",
+                    response_schema={
+                        "type": "OBJECT",
+                        "properties": {
+                            "intent": {
+                                "type": "STRING",
+                                "enum": ["MEDICAL", "SCHEDULER", "BOTH", "UNKNOWN"],
+                            }
+                        },
+                        "required": ["intent"],
+                    },
+                ),
+            )
+
+            # Parse the structured JSON response
+            result = json.loads(response.text)
+            intent = result.get("intent", "UNKNOWN")
+
+            # Defensive validation — should never trigger with schema constraints,
+            # but we validate anyway (defense in depth).
+            valid_intents = {"MEDICAL", "SCHEDULER", "BOTH", "UNKNOWN"}
+            if intent not in valid_intents:
+                click.echo(
+                    click.style(
+                        f"   ⚠️ Router returned unexpected intent '{intent}', defaulting to MEDICAL",
+                        fg="yellow",
+                    )
+                )
+                intent = "MEDICAL"  # Safe default — medical queries get more careful handling
+
+            return intent
+
+        except Exception as e:
+            err_str = str(e)
+            if any(err in err_str for err in ["503", "UNAVAILABLE", "429", "RESOURCE_EXHAUSTED"]):
+                if attempt < max_retries - 1:
+                    sleep_time = 2 * (attempt + 1)
+                    click.echo(
+                        click.style(
+                            f"   ⚠️ Router Agent got transient error. Retrying in {sleep_time}s...",
+                            fg="yellow",
+                        )
+                    )
+                    time.sleep(sleep_time)
+                    continue
+
+            click.echo(
+                click.style(f"   ⚠️ Router Agent error: {e}", fg="red")
+            )
+            click.echo(
+                click.style("   Defaulting to MEDICAL for safety.", fg="yellow")
+            )
+            return "MEDICAL"
 
 
 # =============================================================================

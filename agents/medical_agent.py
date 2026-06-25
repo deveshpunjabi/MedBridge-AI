@@ -164,10 +164,34 @@ async def run_medical_agent(
         return _mock_medical_response(text)
 
     try:
+        import time
         from google import genai
         from google.genai import types
 
         client = genai.Client(api_key=GEMINI_API_KEY)
+
+        def _generate_with_retry(contents, config_params, max_retries=3):
+            for attempt in range(max_retries):
+                try:
+                    return client.models.generate_content(
+                        model=MODEL_NAME,
+                        contents=contents,
+                        config=config_params,
+                    )
+                except Exception as e:
+                    err_str = str(e)
+                    if any(err in err_str for err in ["503", "UNAVAILABLE", "429", "RESOURCE_EXHAUSTED"]):
+                        if attempt < max_retries - 1:
+                            sleep_time = 2 * (attempt + 1)
+                            click.echo(
+                                click.style(
+                                    f"   ⚠️ Medical Agent got transient error. Retrying in {sleep_time}s...",
+                                    fg="yellow",
+                                )
+                            )
+                            time.sleep(sleep_time)
+                            continue
+                    raise e
 
         # Build the tool configuration.
         # Google GenAI API does not allow combining built-in tools (google_search) and
@@ -191,10 +215,9 @@ async def run_medical_agent(
         # -----------------------------------------------------------------
         # Step 1: Initial LLM call with tools available
         # -----------------------------------------------------------------
-        response = client.models.generate_content(
-            model=MODEL_NAME,
+        response = _generate_with_retry(
             contents=text,
-            config=types.GenerateContentConfig(
+            config_params=types.GenerateContentConfig(
                 system_instruction=MEDICAL_SYSTEM_PROMPT,
                 tools=tools,
             ),
@@ -234,8 +257,7 @@ async def run_medical_agent(
                 # ---------------------------------------------------------
                 # Step 3: Feed tool result back to LLM for final response
                 # ---------------------------------------------------------
-                response = client.models.generate_content(
-                    model=MODEL_NAME,
+                response = _generate_with_retry(
                     contents=[
                         types.Content(
                             role="user",
@@ -255,7 +277,7 @@ async def run_medical_agent(
                             ],
                         ),
                     ],
-                    config=types.GenerateContentConfig(
+                    config_params=types.GenerateContentConfig(
                         system_instruction=MEDICAL_SYSTEM_PROMPT,
                     ),
                 )
